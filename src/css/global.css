@@ -1,0 +1,126 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Tailwind CSS theme
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+   * A different format will require also updating the theme in tailwind.config.ts.
+  */
+  :root {
+    --background: 220 14% 96%;
+    --foreground: 222 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 84% 4.9%;
+
+    --primary: 221 83% 53%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 84% 4.9%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 210 40% 96%;
+    --accent-foreground: 222 84% 4.9%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 221 83% 53%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 220 14% 96%;
+
+    --sidebar-foreground: 222 84% 4.9%;
+
+    --sidebar-primary: 221 83% 53%;
+
+    --sidebar-primary-foreground: 210 40% 98%;
+
+    --sidebar-accent: 210 40% 96%;
+
+    --sidebar-accent-foreground: 222 84% 4.9%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 221 83% 53%;
+  }
+
+  .dark {
+    --background: 222 58% 6%;
+    --foreground: 210 40% 98%;
+
+    --card: 224 60% 10%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 60% 10%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 217 92% 61%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 220 35% 18%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 220 30% 22%;
+    --muted-foreground: 215 20% 70%;
+
+    --accent: 199 89% 48%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 220 30% 24%;
+    --input: 220 30% 24%;
+    --ring: 217 92% 61%;
+    --sidebar-background: 222 58% 6%;
+    --sidebar-foreground: 210 30% 85%;
+    --sidebar-primary: 217 92% 61%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 35% 14%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 220 30% 22%;
+    --sidebar-ring: 217 92% 61%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Mobile padding tweak: shrink Tailwind .p-3 slightly */
+@layer utilities {
+  .p-3 {
+    padding: 0.45rem;
+  }
+  /* Shrink vertical spacing for space-y-2 to half (from 0.5rem to 0.25rem) */
+  .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.25rem * calc(1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.25rem * var(--tw-space-y-reverse));
+  }
+  /* Reduce padding top for .pt-3 utility */
+  .pt-3 {
+    padding-top: 0.15rem;
+  }
+}

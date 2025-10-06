@@ -1,0 +1,4140 @@
+﻿import React, { useState, useEffect, useRef } from "react";
+import { Clock, Menu, ArrowRight, ArrowLeft, Plus, Minus, ShoppingCart, X, MessageSquare, Bell, User, CreditCard, Smartphone, DollarSign, CheckCircle, ChevronDown, BarChart3 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+
+export default function AllTables() {
+  const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [expandedCard, setExpandedCard] = useState(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [quantities, setQuantities] = useState({});
+  const [showCart, setShowCart] = useState(false);
+  const [selectedTable, setSelectedTable] = useState("1");
+  const [showTableDropdown, setShowTableDropdown] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [cartNote, setCartNote] = useState("");
+  const commentInputRef = useRef(null);
+
+  // Payment state
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [isPaid, setIsPaid] = useState(false);
+  
+  // Split payment state
+  const [paymentType, setPaymentType] = useState("single"); // "single" or "split"
+  const [seatPaymentMethods, setSeatPaymentMethods] = useState({});
+  const [seatPaidStatus, setSeatPaidStatus] = useState({});
+  
+  // Order More state
+  const [orderMoreSelected, setOrderMoreSelected] = useState(false);
+  
+  // Seat selection state
+  const [showSeatSelection, setShowSeatSelection] = useState(false);
+  const [selectedSeats, setSelectedSeats] = useState([]);
+  const [tableToSeat, setTableToSeat] = useState(null);
+  
+  // Seat page view state
+  const [showSeatPageView, setShowSeatPageView] = useState(false);
+  const [selectedTableForSeats, setSelectedTableForSeats] = useState(null);
+  
+  // Seat selection popup state
+  const [showSeatSelectionPopup, setShowSeatSelectionPopup] = useState(false);
+  const [selectedSeatsForTable, setSelectedSeatsForTable] = useState([]);
+  
+  // Order task tab state
+  const [activeOrderTab, setActiveOrderTab] = useState("1");
+  
+  // Cart items with seat tracking - per table
+  const [tableCarts, setTableCarts] = useState({});
+  
+  // Individual seat data for each table - each seat has its own task flow
+  const [tableSeats, setTableSeats] = useState({});
+  
+  // Initialize individual seat data for each table
+  const initializeTableSeats = () => {
+    const seatsData = {};
+    rows.forEach(row => {
+      seatsData[row.id] = {
+        1: {
+          id: 1,
+          tableId: row.id,
+          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTask: { 
+            id: "1", 
+            name: "Assign Table", 
+            statusOptions: ["Empty", "Seated"],
+            currentStatus: "Empty"
+          },
+          minutes: 0,
+          status: "Available",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [1]
+        },
+        2: {
+          id: 2,
+          tableId: row.id,
+          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTask: { 
+            id: "1", 
+            name: "Assign Table", 
+            statusOptions: ["Empty", "Seated"],
+            currentStatus: "Empty"
+          },
+          minutes: 0,
+          status: "Available",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [2]
+        },
+        3: {
+          id: 3,
+          tableId: row.id,
+          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTask: { 
+            id: "1", 
+            name: "Assign Table", 
+            statusOptions: ["Empty", "Seated"],
+            currentStatus: "Empty"
+          },
+          minutes: 0,
+          status: "Available",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [3]
+        },
+        4: {
+          id: 4,
+          tableId: row.id,
+          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTask: { 
+            id: "1", 
+            name: "Assign Table", 
+            statusOptions: ["Empty", "Seated"],
+            currentStatus: "Empty"
+          },
+          minutes: 0,
+          status: "Available",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [4]
+        }
+      };
+    });
+    setTableSeats(seatsData);
+  };
+  
+  // Initialize seat data when component mounts
+  useEffect(() => {
+    initializeTableSeats();
+  }, []);
+  
+  // Bar seats state management
+  const [barSeats, setBarSeats] = useState([
+    { id: 1, status: "Available", currentTaskIndex: 0, currentTask: { id: "1", name: "Assign Table", statusOptions: ["Empty", "Seated"], currentStatus: "Empty" }, minutes: 0, orderMoreNext: false, serveHistory: [], selectedSeats: [] },
+    { id: 2, status: "In Progress", currentTaskIndex: 1, currentTask: { id: "2", name: "Pre Meal", statusOptions: ["Pending", "Served"], currentStatus: "Pending" }, minutes: 5, orderMoreNext: false, serveHistory: [], selectedSeats: [2] },
+    { id: 3, status: "In Progress", currentTaskIndex: 2, currentTask: { id: "3", name: "Order", statusOptions: ["Pending", "Placed"], currentStatus: "Pending" }, minutes: 10, orderMoreNext: false, serveHistory: [], selectedSeats: [3] },
+    { id: 4, status: "In Progress", currentTaskIndex: 3, currentTask: { id: "4", name: "Serve", statusOptions: ["Preparing", "Prepared", "Served"], currentStatus: "Preparing", kitchenStatus: "Prepared", serveStatus: "Pending" }, minutes: 15, orderMoreNext: false, serveHistory: [], selectedSeats: [4] },
+    { id: 5, status: "In Progress", currentTaskIndex: 4, currentTask: { id: "5", name: "Post Meal", statusOptions: ["Pending", "Served"], currentStatus: "Pending" }, minutes: 8, orderMoreNext: false, serveHistory: [], selectedSeats: [5] },
+    { id: 6, status: "Pending", currentTaskIndex: 5, currentTask: { id: "6", name: "Payment", statusOptions: ["Pending", "Paid"], currentStatus: "Pending" }, minutes: 3, orderMoreNext: false, serveHistory: [], selectedSeats: [6] }
+  ]);
+  
+  const [selectedBarSeat, setSelectedBarSeat] = useState(null);
+  
+  // Payment methods
+  const paymentMethods = [
+    {
+      id: "cash",
+      name: "Cash",
+      icon: DollarSign,
+      description: "Pay with cash",
+      color: "bg-green-500",
+      textColor: "text-green-500"
+    },
+    {
+      id: "upi",
+      name: "UPI",
+      icon: Smartphone,
+      description: "Pay via UPI",
+      color: "bg-purple-500",
+      textColor: "text-purple-500"
+    },
+    {
+      id: "card",
+      name: "Card",
+      icon: CreditCard,
+      description: "Credit/Debit card",
+      color: "bg-blue-500",
+      textColor: "text-blue-500"
+    }
+  ];
+
+  const canProceedToNextTask = (taskIndex = null) => {
+    if (!expandedCard) return false;
+    
+    const currentTaskId = expandedCard.currentTask.id;
+    
+    // Handle individual seat tasks (bar seats and table seats)
+    if (expandedCard.seat || (expandedCard.seatNumber && expandedCard.tableId)) {
+      let seatData = null;
+      
+      if (expandedCard.seat) {
+        // Bar seat
+        seatData = expandedCard.seat;
+      } else if (expandedCard.seatNumber && expandedCard.tableId) {
+        // Table seat
+        seatData = tableSeats[expandedCard.tableId]?.[expandedCard.seatNumber];
+      }
+      
+      if (!seatData) return false;
+      
+      switch (currentTaskId) {
+        case "1": // Assign Table
+          // Only active when status is changed from "Empty" to "Seated"
+          return seatData.currentTask.currentStatus === "Seated";
+        case "2": // Pre Meal
+          // Only active when status is changed from "Pending" to "Served"
+          return seatData.currentTask.currentStatus === "Served";
+        case "3": // Order
+          // Check if there are orders placed (serveHistory has items)
+          const hasOrders = seatData.serveHistory && seatData.serveHistory.length > 0;
+          return hasOrders;
+        case "4": // Serve
+          // Check if all items in serve history are served
+          if (!seatData.serveHistory || seatData.serveHistory.length === 0) return false;
+          return seatData.serveHistory.every(order => 
+            order.items && order.items.every(item => item.served)
+          );
+        case "5": // Post Meal
+          // Only active when status is changed from "Pending" to "Served"
+          return seatData.currentTask.currentStatus === "Served";
+        case "6": // Payment
+          // Only active when status is changed from "Pending" to "Paid"
+          return seatData.currentTask.currentStatus === "Paid";
+        default:
+          return false;
+      }
+    }
+    
+    // Handle "All Seats" functionality
+    if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
+      switch (currentTaskId) {
+        case "1": // Assign Table
+          return expandedCard.currentTask.currentStatus === "Seated";
+        case "2": // Pre Meal
+          return expandedCard.currentTask.currentStatus === "Served";
+        case "3": // Order
+          return expandedCard.currentTask.currentStatus === "Placed";
+        case "4": // Serve
+          const serveHistory = expandedCard.serveHistory || [];
+          if (serveHistory.length === 0) return false;
+          
+          // Check if all items in all orders are served
+          return serveHistory.every(order => 
+            order.items && order.items.every(item => item.served)
+          );
+        case "5": // Post Meal
+          return expandedCard.currentTask.currentStatus === "Served";
+        case "6": // Payment
+          return isAllSeatsPaid();
+        default:
+          return false;
+      }
+    }
+    
+    // Handle regular table tasks (fallback)
+    const currentStatus = expandedCard.currentTask.currentStatus;
+    switch (currentTaskId) {
+      case "1": // Assign Table
+        return currentStatus === "Seated";
+      case "2": // Pre Meal
+        return currentStatus === "Served";
+      case "3": // Order
+        return currentStatus === "Placed";
+      case "4": // Serve
+        if (orderMoreSelected) return true;
+        return expandedCard.currentTask.serveStatus === "Served";
+      case "5": // Post Meal
+        return currentStatus === "Served";
+      case "6": // Payment
+        return paymentType === "single" ? isPaid : isAllSeatsPaid();
+      default:
+        return false;
+    }
+  };
+  
+  // Task flow definition with status options
+  const taskFlow = [
+    { 
+      id: "1", 
+      name: "Assign Table", 
+      statusOptions: ["Empty", "Seated"],
+      currentStatus: "Empty"
+    },
+    { 
+      id: "2", 
+      name: "Pre Meal", 
+      statusOptions: ["Pending", "Served"],
+      currentStatus: "Pending"
+    },
+    { 
+      id: "3", 
+      name: "Order", 
+      statusOptions: ["Pending", "Placed"],
+      currentStatus: "Pending"
+    },
+    { 
+      id: "4", 
+      name: "Serve", 
+      statusOptions: ["Preparing", "Prepared", "Served"],
+      currentStatus: "Preparing",
+      kitchenStatus: "Prepared",
+      serveStatus: "Pending"
+    },
+    { 
+      id: "5", 
+      name: "Post Meal", 
+      statusOptions: ["Pending", "Served"],
+      currentStatus: "Pending"
+    },
+    { 
+      id: "6", 
+      name: "Payment", 
+      statusOptions: ["Pending", "Paid"],
+      currentStatus: "Pending"
+    }
+  ];
+
+  const [rows, setRows] = useState([
+    { 
+      id: "T-101", 
+      currentTaskIndex: 0,
+      currentTask: { 
+        id: "1", 
+        name: "Assign Table", 
+        statusOptions: ["Empty", "Seated"],
+        currentStatus: "Empty"
+      },
+      minutes: 4, 
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: [], // Track serve statuses
+      selectedSeats: [] // Track selected seats
+    },
+    { 
+      id: "T-102", 
+      currentTaskIndex: 1,
+      currentTask: { 
+        id: "2", 
+        name: "Pre Meal", 
+        statusOptions: ["Pending", "Served"],
+        currentStatus: "Pending"
+      },
+      minutes: 4, 
+      status: "In Progress",
+      orderMoreNext: false,
+      serveHistory: [],
+      selectedSeats: []
+    },
+    { 
+      id: "T-103", 
+      currentTaskIndex: 2,
+      currentTask: { 
+        id: "3", 
+        name: "Order", 
+        statusOptions: ["Pending", "Placed"],
+        currentStatus: "Pending"
+      },
+      minutes: 9, 
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: [],
+      selectedSeats: []
+    },
+    { 
+      id: "T-104", 
+      currentTaskIndex: 3,
+      currentTask: { 
+        id: "4", 
+        name: "Serve", 
+        statusOptions: ["Preparing", "Prepared", "Served"],
+        currentStatus: "Preparing",
+        kitchenStatus: "Prepared",
+        serveStatus: "Pending"
+      },
+      minutes: 21, 
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: [],
+      selectedSeats: []
+    },
+    { 
+      id: "T-105", 
+      currentTaskIndex: 4,
+      currentTask: { 
+        id: "5", 
+        name: "Post Meal", 
+        statusOptions: ["Pending", "Served"],
+        currentStatus: "Pending"
+      },
+      minutes: 5, 
+      status: "Completed",
+      orderMoreNext: false,
+      serveHistory: [],
+      selectedSeats: []
+    },
+    { 
+      id: "T-106", 
+      currentTaskIndex: 5,
+      currentTask: { 
+        id: "6", 
+        name: "Payment", 
+        statusOptions: ["Pending", "Paid"],
+        currentStatus: "Pending"
+      },
+      minutes: 0, 
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: [],
+      selectedSeats: []
+    },
+  ]);
+
+  const handlePayment = (seatId = null) => {
+    if (paymentType === "single") {
+      if (!selectedPaymentMethod) return;
+      setIsPaid(true);
+    } else {
+      // Split payment
+      if (!seatId || !seatPaymentMethods[seatId]) return;
+      setSeatPaidStatus(prev => ({
+        ...prev,
+        [seatId]: true
+      }));
+      
+      // If this is "All Seats" split payment, also update the individual seat's payment status
+      if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
+        const tableId = expandedCard.id;
+        
+        setTableSeats(prev => {
+          const updatedSeats = { ...prev };
+          const seatNumber = parseInt(seatId);
+          const seatData = updatedSeats[tableId]?.[seatNumber];
+          
+          if (seatData) {
+            updatedSeats[tableId][seatNumber] = {
+              ...seatData,
+              currentTask: {
+                ...seatData.currentTask,
+                currentStatus: "Paid"
+              }
+            };
+          }
+          
+          return updatedSeats;
+        });
+      }
+    }
+    
+    // Don't auto-reset - let user click Next Task to proceed
+  };
+
+  const handleSeatPayment = (seatId, methodId) => {
+    setSeatPaymentMethods(prev => ({
+      ...prev,
+      [seatId]: methodId
+    }));
+  };
+
+  const isAllSeatsPaid = () => {
+    const seatTotals = calculateSeatTotals();
+    const seatIds = Object.keys(seatTotals);
+    return seatIds.every(seatId => seatPaidStatus[seatId]);
+  };
+
+  const handleSeatSelection = (tableRow) => {
+    // Show seat selection modal
+    setTableToSeat(tableRow);
+    setShowSeatSelection(true);
+  };
+
+  const handleSeatConfirm = () => {
+    if (selectedSeats.length === 0 || !tableToSeat) return;
+    
+    // Update the table with selected seats
+    const updatedRows = rows.map(row => {
+      if (row.id === tableToSeat.id) {
+        return {
+          ...row,
+          selectedSeats: [...selectedSeats],
+          currentTask: {
+            ...row.currentTask,
+            currentStatus: "Seated"
+          }
+        };
+      }
+      return row;
+    });
+    
+    setRows(updatedRows);
+    
+    // Close seat selection and open the task view
+    setShowSeatSelection(false);
+    setSelectedSeats([]);
+    setTableToSeat(null);
+    
+    // Find and set the updated row as expanded card
+    const updatedTable = updatedRows.find(row => row.id === tableToSeat.id);
+    setExpandedCard(updatedTable);
+    
+    // Set the first selected seat as the active tab instead of "all"
+    if (selectedSeats.length > 0) {
+      setActiveOrderTab(selectedSeats[0].toString());
+    }
+  };
+
+  const handleTableClick = (row) => {
+    setSelectedTableForSeats(row);
+    
+    // Check if there are any active tasks on any seats of this table
+    const tableId = row.id;
+    const hasActiveTasks = tableSeats[tableId] && Object.values(tableSeats[tableId]).some(seat => {
+      // Check if seat has orders, serve history, or is not in initial state
+      return (seat.serveHistory && seat.serveHistory.length > 0) || 
+             seat.currentTaskIndex > 0 || 
+             seat.currentTask.currentStatus !== "Empty";
+    });
+    
+    if (hasActiveTasks) {
+      // If there are active tasks, go directly to seats page with all seats selected
+      setSelectedSeatsForTable([1, 2, 3, 4]); // Select all seats
+      setShowSeatPageView(true);
+    } else {
+      // If table is cleared, show seat selection popup
+      setSelectedSeatsForTable([]); // Reset selected seats
+      setShowSeatSelectionPopup(true);
+    }
+  };
+
+  const handleSeatSelectionToggle = (seatNumber) => {
+    setSelectedSeatsForTable(prev => {
+      if (prev.includes(seatNumber)) {
+        return prev.filter(seat => seat !== seatNumber);
+      } else {
+        return [...prev, seatNumber];
+      }
+    });
+  };
+
+  const handleConfirmSeatSelection = () => {
+    if (selectedSeatsForTable.length === 0) {
+      // If no seats selected, select all seats by default
+      setSelectedSeatsForTable([1, 2, 3, 4]);
+    }
+    setShowSeatSelectionPopup(false);
+    setShowSeatPageView(true);
+  };
+
+  const handleSeatPageSeatClick = (seatNumber) => {
+    // Get the individual seat data for this specific seat
+    const seatData = tableSeats[selectedTableForSeats.id]?.[seatNumber];
+    
+    if (!seatData) {
+      console.error(`Seat data not found for table ${selectedTableForSeats.id}, seat ${seatNumber}`);
+      return;
+    }
+    
+    // Create a seat object that maintains the table ID for the task flow
+    const seatObject = {
+      id: `${selectedTableForSeats.id}-S${seatNumber}`, // Unique ID for this specific seat
+      seatNumber: seatNumber,
+      tableId: selectedTableForSeats.id,
+      currentTaskIndex: seatData.currentTaskIndex,
+      currentTask: { ...seatData.currentTask },
+      minutes: seatData.minutes,
+      status: seatData.status,
+      orderMoreNext: seatData.orderMoreNext,
+      serveHistory: [...seatData.serveHistory],
+      selectedSeats: [seatNumber]
+    };
+    
+    // Close seat page view and open task flow
+    setShowSeatPageView(false);
+    setExpandedCard(seatObject);
+  };
+
+  const handleBarSeatClick = (seat) => {
+    // For bar seats, always go directly to task flow (no seat selection needed)
+    // Set the seat number as the selected seat for this bar seat
+    const updatedSeat = {
+      ...seat,
+      selectedSeats: [seat.id] // The seat number is always the selected seat
+    };
+    
+    // Reset active tab when switching seats
+    setActiveOrderTab(seat.id.toString());
+    // Set the selected bar seat for expanded view
+    setSelectedBarSeat(updatedSeat);
+    setExpandedCard({ 
+      id: `BAR-SEAT-${seat.id}`, 
+      type: "bar-seat", 
+      seat: updatedSeat,
+      selectedSeats: [seat.id]
+    });
+  };
+
+  const menuCategories = [
+    {
+      title: "Starters",
+      items: [
+        { id: "s1", name: "Bruschetta", description: "Toasted bread with tomatoes, garlic, and olive oil", price: "$8.50" },
+        { id: "s2", name: "Calamari", description: "Crispy fried squid with marinara sauce", price: "$12.00" },
+        { id: "s3", name: "Caprese Salad", description: "Fresh mozzarella, tomatoes, and basil", price: "$10.50" },
+      ]
+    },
+    {
+      title: "Breads",
+      items: [
+        { id: "b1", name: "Garlic Bread", description: "Toasted baguette with garlic butter and herbs", price: "$6.00" },
+        { id: "b2", name: "Focaccia", description: "Italian flatbread with rosemary and sea salt", price: "$7.50" },
+        { id: "b3", name: "Bread Basket", description: "Assorted artisan breads with olive oil", price: "$8.00" },
+      ]
+    },
+    {
+      title: "Main Courses",
+      items: [
+        { id: "m1", name: "Grilled Salmon", description: "Atlantic salmon with seasonal vegetables", price: "$24.00" },
+        { id: "m2", name: "Chicken Tenderloin", description: "8oz tenderloin with mashed potatoes", price: "$28.50" },
+        { id: "m3", name: "Chicken Marsala", description: "Pan-seared chicken in marsala wine sauce", price: "$22.00" },
+        { id: "m4", name: "Pasta Carbonara", description: "Spaghetti with eggs, cheese, and pancetta", price: "$18.50" },
+      ]
+    },
+    {
+      title: "Desserts",
+      items: [
+        { id: "d1", name: "Tiramisu", description: "Classic Italian dessert with coffee and mascarpone", price: "$9.00" },
+        { id: "d2", name: "Chocolate Lava Cake", description: "Warm chocolate cake with vanilla ice cream", price: "$10.50" },
+        { id: "d3", name: "Crème Brûlée", description: "Vanilla custard with caramelized sugar", price: "$8.50" },
+      ]
+    }
+  ];
+
+  // NEW CLEAN CART SYSTEM
+  const newUpdateCartItem = (itemId, change, seatId = activeOrderTab) => {
+    if (!expandedCard) return;
+    
+    const tableId = expandedCard.tableId || expandedCard.id;
+    const actualSeatId = seatId;
+    
+    setTableCarts(prev => {
+      const seatKey = `${tableId}-S${actualSeatId}`;
+      const currentCart = prev[seatKey] || [];
+      
+      const existingItemIndex = currentCart.findIndex(item => 
+        item.id === itemId && item.seatId === actualSeatId
+        );
+        
+        if (existingItemIndex >= 0) {
+        const existingItem = currentCart[existingItemIndex];
+          const newQuantity = Math.max(0, existingItem.quantity + change);
+          
+          if (newQuantity === 0) {
+          const updatedCart = currentCart.filter((_, index) => index !== existingItemIndex);
+          return { ...prev, [seatKey]: updatedCart };
+          } else {
+          const updatedCart = [...currentCart];
+          updatedCart[existingItemIndex] = {
+            ...existingItem,
+            quantity: newQuantity
+          };
+          return { ...prev, [seatKey]: updatedCart };
+          }
+        } else if (change > 0) {
+        const menuItem = menuCategories
+          .flatMap(cat => cat.items)
+          .find(item => item.id === itemId);
+        
+        if (menuItem) {
+          const updatedCart = [...currentCart, {
+            ...menuItem,
+            quantity: change,
+            seatId: actualSeatId,
+            seatTag: `Seat ${actualSeatId}`
+          }];
+          return { ...prev, [seatKey]: updatedCart };
+        }
+      }
+      
+      return prev;
+    });
+  };
+
+  const newGetQuantityForItem = (itemId, seatId = activeOrderTab) => {
+    if (!expandedCard) return 0;
+    
+    const tableId = expandedCard.tableId || expandedCard.id;
+    const actualSeatId = seatId;
+    
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    const seatItem = seatCart.find(cartItem => 
+      cartItem.id === itemId && cartItem.seatId === actualSeatId
+    );
+    return seatItem ? seatItem.quantity : 0;
+  };
+
+  const newGetCartItems = () => {
+    if (!expandedCard) return [];
+    const tableId = expandedCard.tableId || expandedCard.id;
+    const actualSeatId = activeOrderTab;
+    
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    
+    return seatCart.map(item => ({
+      ...item,
+      seatNumber: actualSeatId
+    }));
+  };
+
+  const newGetTotalItems = () => {
+    if (!expandedCard) return 0;
+    const tableId = expandedCard.tableId || expandedCard.id;
+    const actualSeatId = activeOrderTab;
+    
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    return seatCart.reduce((sum, item) => sum + item.quantity, 0);
+  };
+
+  // NEW CLEAN ORDER PLACEMENT SYSTEM
+  const newPlaceOrder = () => {
+    if (!expandedCard) return;
+    
+    let tableId, seatId, seatKey;
+    
+    if (expandedCard.seat) {
+      // Bar seat
+      tableId = expandedCard.tableId || expandedCard.id;
+      seatId = expandedCard.seat.id;
+      seatKey = `BAR-SEAT-${seatId}`;
+    } else if (expandedCard.seatNumber && expandedCard.tableId) {
+      // Table seat
+      tableId = expandedCard.tableId;
+      seatId = expandedCard.seatNumber;
+      seatKey = `${tableId}-S${seatId}`;
+    } else {
+      // Regular table
+      tableId = expandedCard.id;
+      seatId = activeOrderTab;
+      seatKey = `${tableId}-S${seatId}`;
+    }
+    
+    const currentCart = tableCarts[seatKey] || [];
+    
+    if (currentCart.length === 0) return;
+    
+    // Create order items with kitchen status
+    const orderItems = currentCart.map(item => ({
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      seatId: item.seatId,
+      kitchenStatus: "Preparing"
+    }));
+    
+    // Create new order
+    const newOrder = {
+      orderNumber: 1, // Will be updated based on existing orders
+      status: "Pending",
+      timestamp: new Date().toLocaleTimeString(),
+      items: orderItems,
+      note: cartNote || null
+    };
+    
+    // Handle different seat types
+    if (expandedCard.seat) {
+      // Bar seat order
+      setBarSeats(prev => prev.map(seat => {
+        if (seat.id === expandedCard.seat.id) {
+          const existingOrders = seat.serveHistory || [];
+          const updatedOrder = {
+            ...newOrder,
+            orderNumber: existingOrders.length + 1
+          };
+          
+          const updatedSeat = {
+            ...seat,
+            currentTaskIndex: 3,
+            currentTask: { ...taskFlow[3] },
+            serveHistory: [...existingOrders, updatedOrder]
+          };
+          
+          // Update expandedCard to reflect the new seat data
+          setExpandedCard(prev => ({
+            ...prev,
+            seat: updatedSeat,
+            currentTaskIndex: 3,
+            currentTask: { ...taskFlow[3] }
+          }));
+          
+          return updatedSeat;
+        }
+        return seat;
+      }));
+      
+    } else if (expandedCard.seatNumber && expandedCard.tableId) {
+      // Table seat order
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        const tableId = expandedCard.tableId;
+        const seatNumber = expandedCard.seatNumber;
+        const seatData = updatedSeats[tableId]?.[seatNumber];
+        
+        if (seatData) {
+          const existingOrders = seatData.serveHistory || [];
+          const updatedOrder = {
+            ...newOrder,
+            orderNumber: existingOrders.length + 1
+          };
+          
+          const updatedSeat = {
+            ...seatData,
+            currentTaskIndex: 3,
+            currentTask: { ...taskFlow[3] },
+            serveHistory: [...existingOrders, updatedOrder]
+          };
+          
+          updatedSeats[tableId][seatNumber] = updatedSeat;
+          
+          // Update expandedCard to reflect the new seat data
+          setExpandedCard(prev => ({
+            ...prev,
+            serveHistory: [...existingOrders, updatedOrder],
+            currentTaskIndex: 3,
+            currentTask: { ...taskFlow[3] }
+          }));
+          
+          return updatedSeats;
+        }
+        
+        return prev;
+      });
+      
+      } else {
+      // Regular table order
+      const idx = rows.findIndex(r => r.id === expandedCard.id);
+      if (idx !== -1) {
+        const updatedRows = [...rows];
+        const existingOrders = updatedRows[idx].serveHistory || [];
+        const updatedOrder = {
+          ...newOrder,
+          orderNumber: existingOrders.length + 1
+        };
+        
+        updatedRows[idx] = {
+          ...updatedRows[idx],
+          currentTaskIndex: 3,
+          currentTask: { ...taskFlow[3] },
+          serveHistory: [...existingOrders, updatedOrder]
+        };
+        
+        setRows(updatedRows);
+        setExpandedCard(updatedRows[idx]);
+      }
+    }
+    
+    // Clear the cart
+    setTableCarts(prev => {
+      const newCarts = { ...prev };
+      newCarts[seatKey] = [];
+      return newCarts;
+    });
+    
+    // Reset other states
+    setQuantities({});
+    setCartNote('');
+    setShowCart(false);
+    setShowMenu(false);
+  };
+
+  // NEW CLEAN SERVE TASK DISPLAY
+  const newGetServeOrders = () => {
+    if (!expandedCard) return [];
+    
+    if (expandedCard.seat) {
+      // Bar seat orders
+      return expandedCard.seat.serveHistory || [];
+    } else if (expandedCard.seatNumber && expandedCard.tableId) {
+      // Table seat orders
+      return expandedCard.serveHistory || [];
+    } else {
+      // Regular table orders
+      return expandedCard.serveHistory || [];
+    }
+  };
+
+  const newUpdateItemServed = (orderIndex, itemIndex, served) => {
+    if (expandedCard.seat) {
+      // Bar seat update
+      setBarSeats(prev => prev.map(seat => {
+        if (seat.id === expandedCard.seat.id) {
+          const updatedServeHistory = [...seat.serveHistory];
+          if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+            updatedServeHistory[orderIndex] = {
+              ...updatedServeHistory[orderIndex],
+              items: updatedServeHistory[orderIndex].items.map((item, idx) =>
+                idx === itemIndex ? { ...item, served } : item
+              )
+            };
+          }
+          
+          // Check if all items in all orders are served
+          const allItemsServed = updatedServeHistory.every(order => 
+            order.items && order.items.every(item => item.served)
+          );
+          
+          const updatedSeat = { 
+            ...seat, 
+            serveHistory: updatedServeHistory,
+            currentTask: {
+              ...seat.currentTask,
+              serveStatus: allItemsServed ? "Served" : "Pending"
+            }
+          };
+          
+          // Update expandedCard immediately with the updated seat
+          setExpandedCard(prev => ({
+            ...prev,
+            seat: updatedSeat
+          }));
+          
+          return updatedSeat;
+        }
+        return seat;
+      }));
+      
+    } else if (expandedCard.seatNumber && expandedCard.tableId) {
+      // Table seat update
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        const tableId = expandedCard.tableId;
+        const seatNumber = expandedCard.seatNumber;
+        const seatData = updatedSeats[tableId]?.[seatNumber];
+        
+        if (seatData) {
+          const updatedServeHistory = [...seatData.serveHistory];
+          if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+            updatedServeHistory[orderIndex] = {
+              ...updatedServeHistory[orderIndex],
+              items: updatedServeHistory[orderIndex].items.map((item, idx) =>
+                idx === itemIndex ? { ...item, served } : item
+              )
+            };
+          }
+          
+          // Check if all items in all orders are served
+          const allItemsServed = updatedServeHistory.every(order => 
+            order.items && order.items.every(item => item.served)
+          );
+          
+          const updatedSeat = { 
+            ...seatData, 
+            serveHistory: updatedServeHistory,
+            currentTask: {
+              ...seatData.currentTask,
+              serveStatus: allItemsServed ? "Served" : "Pending"
+            }
+          };
+          updatedSeats[tableId][seatNumber] = updatedSeat;
+          
+          // Update expandedCard immediately with the updated serve history
+          setExpandedCard(prev => ({
+            ...prev,
+            serveHistory: updatedServeHistory,
+            currentTask: {
+              ...prev.currentTask,
+              serveStatus: allItemsServed ? "Served" : "Pending"
+            }
+          }));
+          
+          return updatedSeats;
+        }
+        
+        return prev;
+      });
+      
+    } else {
+      // Regular table update
+      const idx = rows.findIndex(r => r.id === expandedCard.id);
+      if (idx !== -1) {
+        const updatedRows = [...rows];
+        const updatedServeHistory = [...updatedRows[idx].serveHistory];
+        if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+          updatedServeHistory[orderIndex] = {
+            ...updatedServeHistory[orderIndex],
+            items: updatedServeHistory[orderIndex].items.map((item, itemIdx) =>
+              itemIdx === itemIndex ? { ...item, served } : item
+            )
+          };
+        }
+        
+        // Check if all items in all orders are served
+        const allItemsServed = updatedServeHistory.every(order => 
+          order.items && order.items.every(item => item.served)
+        );
+        
+        updatedRows[idx] = {
+          ...updatedRows[idx],
+          serveHistory: updatedServeHistory,
+          currentTask: {
+            ...updatedRows[idx].currentTask,
+            serveStatus: allItemsServed ? "Served" : "Pending"
+          }
+        };
+        setRows(updatedRows);
+        setExpandedCard(updatedRows[idx]);
+      }
+    }
+  };
+
+  const newUpdateKitchenStatus = (orderIndex, itemIndex, kitchenStatus) => {
+    if (expandedCard.seat) {
+      // Bar seat update
+      setBarSeats(prev => prev.map(seat => {
+        if (seat.id === expandedCard.seat.id) {
+          const updatedServeHistory = [...seat.serveHistory];
+          if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+            updatedServeHistory[orderIndex] = {
+              ...updatedServeHistory[orderIndex],
+              items: updatedServeHistory[orderIndex].items.map((item, idx) =>
+                idx === itemIndex ? { ...item, kitchenStatus } : item
+              )
+            };
+          }
+          const updatedSeat = { ...seat, serveHistory: updatedServeHistory };
+          
+          // Update expandedCard immediately with the updated seat
+          setExpandedCard(prev => ({
+            ...prev,
+            seat: updatedSeat
+          }));
+          
+          return updatedSeat;
+        }
+        return seat;
+      }));
+      
+    } else if (expandedCard.seatNumber && expandedCard.tableId) {
+      // Table seat update
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        const tableId = expandedCard.tableId;
+        const seatNumber = expandedCard.seatNumber;
+        const seatData = updatedSeats[tableId]?.[seatNumber];
+        
+        if (seatData) {
+          const updatedServeHistory = [...seatData.serveHistory];
+          if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+            updatedServeHistory[orderIndex] = {
+              ...updatedServeHistory[orderIndex],
+              items: updatedServeHistory[orderIndex].items.map((item, idx) =>
+                idx === itemIndex ? { ...item, kitchenStatus } : item
+              )
+            };
+          }
+          
+          const updatedSeat = { ...seatData, serveHistory: updatedServeHistory };
+          updatedSeats[tableId][seatNumber] = updatedSeat;
+          
+          // Update expandedCard immediately with the updated serve history
+          setExpandedCard(prev => ({
+            ...prev,
+            serveHistory: updatedServeHistory
+          }));
+          
+          return updatedSeats;
+        }
+        
+        return prev;
+      });
+      
+    } else {
+      // Regular table update
+      const idx = rows.findIndex(r => r.id === expandedCard.id);
+      if (idx !== -1) {
+        const updatedRows = [...rows];
+        const updatedServeHistory = [...updatedRows[idx].serveHistory];
+        if (updatedServeHistory[orderIndex] && updatedServeHistory[orderIndex].items) {
+          updatedServeHistory[orderIndex] = {
+            ...updatedServeHistory[orderIndex],
+            items: updatedServeHistory[orderIndex].items.map((item, itemIdx) =>
+              itemIdx === itemIndex ? { ...item, kitchenStatus } : item
+            )
+          };
+        }
+        updatedRows[idx] = {
+          ...updatedRows[idx],
+          serveHistory: updatedServeHistory
+        };
+        setRows(updatedRows);
+        setExpandedCard(updatedRows[idx]);
+      }
+    }
+  };
+
+  // OLD FUNCTIONS (keeping for reference but will replace usage)
+  const updateCartItem = (itemId, change, seatId = activeOrderTab) => {
+    if (!expandedCard) return;
+    
+    // Use the table ID from the expanded card, but track by seat
+    const tableId = expandedCard.tableId || expandedCard.id;
+    // Use the provided seatId directly, don't fall back to expandedCard.seatNumber
+    const actualSeatId = seatId;
+    
+    setTableCarts(prev => {
+      const seatKey = `${tableId}-S${actualSeatId}`;
+      const tableCart = prev[seatKey] || [];
+      
+        // Handle individual seat or bar seat
+        const existingItemIndex = tableCart.findIndex(item => 
+          item.id === itemId && item.seatId === actualSeatId
+        );
+        
+        if (existingItemIndex >= 0) {
+          const existingItem = tableCart[existingItemIndex];
+          const newQuantity = Math.max(0, existingItem.quantity + change);
+          
+          if (newQuantity === 0) {
+            // Remove item if quantity becomes 0
+            const updatedCart = tableCart.filter((_, index) => index !== existingItemIndex);
+            return { ...prev, [seatKey]: updatedCart };
+          } else {
+            // Update quantity
+            const updatedCart = [...tableCart];
+            updatedCart[existingItemIndex] = {
+              ...existingItem,
+              quantity: newQuantity
+            };
+            return { ...prev, [seatKey]: updatedCart };
+          }
+        } else if (change > 0) {
+          // Add new item
+          const menuItem = menuCategories
+            .flatMap(cat => cat.items)
+            .find(item => item.id === itemId);
+          
+          if (menuItem) {
+            const updatedCart = [...tableCart, {
+              ...menuItem,
+              quantity: change,
+              seatId: actualSeatId,
+              seatTag: `Seat ${actualSeatId}`
+            }];
+            return { ...prev, [seatKey]: updatedCart };
+        }
+      }
+      
+      return prev;
+    });
+  };
+
+  const getQuantityForItemInTab = (itemId, seatId = activeOrderTab) => {
+    if (!expandedCard) return 0;
+    
+    const tableId = expandedCard.tableId || expandedCard.id;
+    // Use the provided seatId directly, don't fall back to expandedCard.seatNumber
+    const actualSeatId = seatId;
+    
+    // Return quantity only from that specific seat's cart
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    const seatItem = seatCart.find(cartItem => 
+      cartItem.id === itemId && cartItem.seatId === actualSeatId
+    );
+    return seatItem ? seatItem.quantity : 0;
+  };
+
+  const getCartItems = () => {
+    if (!expandedCard) return [];
+    const tableId = expandedCard.tableId || expandedCard.id;
+    // Use activeOrderTab directly, don't fall back to expandedCard.seatNumber
+    const actualSeatId = activeOrderTab;
+    
+    // Return items from this specific seat's cart
+      const mergedItems = [];
+      
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    seatCart.forEach(item => {
+      mergedItems.push({
+        ...item,
+        seatNumber: actualSeatId,
+        seatTag: `Seat ${actualSeatId}`
+      });
+    });
+    
+    return mergedItems;
+  };
+
+  const getTotalItems = () => {
+    if (!expandedCard) return 0;
+    const tableId = expandedCard.tableId || expandedCard.id;
+    // Use activeOrderTab directly, don't fall back to expandedCard.seatNumber
+    const actualSeatId = activeOrderTab;
+    
+    // Return total from this specific seat's cart
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    return seatCart.reduce((sum, item) => sum + item.quantity, 0);
+  };
+
+  const getAllCartItemsForTable = () => {
+    if (!expandedCard) return [];
+    const tableId = expandedCard.tableId || expandedCard.id;
+    // Use activeOrderTab directly, don't fall back to expandedCard.seatNumber
+    const actualSeatId = activeOrderTab;
+    
+    // Return items from this specific seat's cart
+      const mergedItems = [];
+      
+    const seatKey = `${tableId}-S${actualSeatId}`;
+    const seatCart = tableCarts[seatKey] || [];
+    seatCart.forEach(item => {
+      mergedItems.push({
+        ...item,
+        seatNumber: actualSeatId,
+        seatTag: `Seat ${actualSeatId}`
+      });
+    });
+    
+    return mergedItems;
+  };
+
+  const calculateOrderTotal = () => {
+    let total = 0;
+    expandedCard?.serveHistory?.forEach(serve => {
+      serve.items?.forEach(item => {
+        const price = parseFloat(item.price.replace('$', ''));
+        total += price * item.quantity;
+      });
+    });
+    return total.toFixed(2);
+  };
+
+  const calculateSeatTotals = () => {
+    const seatTotals = {};
+    
+    expandedCard?.serveHistory?.forEach(serve => {
+      serve.items?.forEach(item => {
+        const seatId = item.seatId;
+        if (seatId) { // Process all items with their actual seatId
+          const price = parseFloat(item.price.replace('$', ''));
+          const itemTotal = price * item.quantity;
+          
+          if (!seatTotals[seatId]) {
+            seatTotals[seatId] = 0;
+          }
+          seatTotals[seatId] += itemTotal;
+        }
+      });
+    });
+    
+    // Format totals to 2 decimal places
+    Object.keys(seatTotals).forEach(seatId => {
+      seatTotals[seatId] = seatTotals[seatId].toFixed(2);
+    });
+    
+    return seatTotals;
+  };
+
+  const getAllOrderedItems = () => {
+    const allItems = [];
+    expandedCard?.serveHistory?.forEach(serve => {
+      serve.items?.forEach(item => {
+        if (item.seatId) { // Include all items with their actual seatId
+          allItems.push({
+            ...item,
+            orderNumber: serve.orderNumber,
+            timestamp: serve.timestamp,
+            seatId: item.seatId
+          });
+        }
+      });
+    });
+    return allItems;
+  };
+
+  const statusBadgeClass = (status) => {
+    switch (status) {
+      case "In progress":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "Pending":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "Completed":
+        return "bg-green-100 text-green-800 border-green-200";
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
+
+  // Close dropdown when clicking outside
+  const handleClickOutside = (event) => {
+    if (!event.target.closest('.status-dropdown')) {
+      setShowStatusDropdown(false);
+    }
+    if (!event.target.closest('.table-dropdown')) {
+      setShowTableDropdown(false);
+    }
+  };
+
+  // Add event listener for clicking outside
+  useEffect(() => {
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  // Filter rows based on status
+  const filteredRows = rows.filter(row => 
+    statusFilter === "all" || row.status === statusFilter
+  );
+
+  const handleNextTask = () => {
+    if (!expandedCard) return;
+    
+    // If this is a seat-specific task, update the individual seat data
+    if (expandedCard.seatNumber) {
+      const tableId = expandedCard.tableId;
+      const seatNumber = expandedCard.seatNumber;
+      
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        const seatData = updatedSeats[tableId]?.[seatNumber];
+        
+        if (!seatData) return prev;
+        
+        // Update the seat's task flow
+        if (canProceedToNextTask()) {
+          const nextTaskIndex = seatData.currentTaskIndex + 1;
+          const nextTask = taskFlow[nextTaskIndex];
+          
+          updatedSeats[tableId][seatNumber] = {
+            ...seatData,
+            currentTaskIndex: nextTaskIndex,
+            currentTask: {
+              ...nextTask,
+              currentStatus: "Pending"
+            }
+          };
+        }
+        
+        return updatedSeats;
+      });
+      
+      // Update the expanded card with new task info
+      setExpandedCard(prev => {
+        if (canProceedToNextTask()) {
+          const nextTaskIndex = prev.currentTaskIndex + 1;
+          const nextTask = taskFlow[nextTaskIndex];
+          
+          return {
+            ...prev,
+            currentTaskIndex: nextTaskIndex,
+            currentTask: {
+              ...nextTask,
+              currentStatus: "Pending"
+            }
+          };
+        }
+        return prev;
+      });
+      
+      return;
+    }
+    
+    // Handle "All Seats" case - update both rows and expandedCard
+    if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
+      // Update the rows state
+      const currentIndex = rows.findIndex(row => row.id === expandedCard.id);
+      if (currentIndex !== -1 && canProceedToNextTask()) {
+        const updatedRows = [...rows];
+        const nextTaskIndex = updatedRows[currentIndex].currentTaskIndex + 1;
+        const nextTask = taskFlow[nextTaskIndex];
+        
+        updatedRows[currentIndex] = {
+          ...updatedRows[currentIndex],
+          currentTaskIndex: nextTaskIndex,
+          currentTask: {
+            ...nextTask,
+            currentStatus: "Pending"
+          }
+        };
+        
+        setRows(updatedRows);
+        
+        // Update the expanded card to match
+        setExpandedCard(prev => ({
+          ...prev,
+          currentTaskIndex: nextTaskIndex,
+          currentTask: {
+            ...nextTask,
+            currentStatus: "Pending"
+          }
+        }));
+      }
+      
+      return;
+    }
+    
+    // Original logic for non-seat tasks
+    const currentIndex = rows.findIndex(row => row.id === expandedCard.id);
+    if (currentIndex === -1) return;
+    
+    const updatedRows = [...rows];
+    const currentRow = updatedRows[currentIndex];
+    
+    // If we are in Serve and user requested Order More, go to Order instead of Pre Meal
+    if (currentRow.currentTask.id === "4" && orderMoreSelected) {
+      currentRow.currentTaskIndex = 2; // Order index
+      currentRow.currentTask = { ...taskFlow[2] };
+      setOrderMoreSelected(false); // reset flag after jumping
+      currentRow.status = "Pending";
+      // Preserve serve history when moving to Order
+    } else {
+      // Move to next task in flow
+      if (currentRow.currentTaskIndex < taskFlow.length - 1) {
+        currentRow.currentTaskIndex++;
+        currentRow.currentTask = { ...taskFlow[currentRow.currentTaskIndex] };
+        currentRow.status = "Pending";
+        // Preserve serve history when moving to next task
+      } else {
+        // Reset to first task after payment
+        currentRow.currentTaskIndex = 0;
+        currentRow.currentTask = { ...taskFlow[0] };
+        currentRow.status = "Pending";
+        // Clear serve history when resetting to first task
+        currentRow.serveHistory = [];
+      }
+    }
+    
+    // Reset payment state when moving to next task
+    setIsPaid(false);
+    setSelectedPaymentMethod(null);
+    setPaymentAmount("");
+    
+    // Update the rows state
+    setRows(updatedRows);
+    // Update the expanded card with new task info
+    setExpandedCard(updatedRows[currentIndex]);
+  };
+
+  const updateTaskStatus = (tableId, newStatus, serveIndex = null) => {
+    // If this is a seat-specific task, update the individual seat data
+    if (expandedCard && expandedCard.seatNumber) {
+      const seatNumber = expandedCard.seatNumber;
+      
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        const seatData = updatedSeats[tableId]?.[seatNumber];
+        
+        if (!seatData) return prev;
+        
+        updatedSeats[tableId][seatNumber] = {
+          ...seatData,
+          currentTask: {
+            ...seatData.currentTask,
+            currentStatus: newStatus,
+            ...(seatData.currentTask.id === "4" && { serveStatus: newStatus })
+          }
+        };
+        
+        return updatedSeats;
+      });
+      
+      // Update the expanded card
+      setExpandedCard(prev => ({
+        ...prev,
+        currentTask: {
+          ...prev.currentTask,
+          currentStatus: newStatus,
+          ...(prev.currentTask.id === "4" && { serveStatus: newStatus })
+        }
+      }));
+      
+      return;
+    }
+    
+    // Original logic for non-seat tasks
+    const updatedRows = rows.map(row => {
+      if (row.id === tableId) {
+        const updatedRow = {
+          ...row,
+          currentTask: {
+            ...row.currentTask,
+            currentStatus: newStatus,
+            ...(row.currentTask.id === "4" && { serveStatus: newStatus })
+          }
+        };
+        
+        // If this is a serve status update, track in serve history
+        if (row.currentTask.id === "4") {
+          // If updating a specific serve status from history
+          if (serveIndex !== null) {
+            updatedRow.serveHistory = [...row.serveHistory];
+            if (updatedRow.serveHistory[serveIndex]) {
+              updatedRow.serveHistory[serveIndex].status = newStatus;
+            }
+          } else {
+            // This is updating the current serve status - find the latest order and update it
+            if (updatedRow.serveHistory.length > 0) {
+              const latestOrderIndex = updatedRow.serveHistory.length - 1;
+              updatedRow.serveHistory = [...row.serveHistory];
+              updatedRow.serveHistory[latestOrderIndex].status = newStatus;
+            }
+          }
+        }
+        
+        return updatedRow;
+      }
+      return row;
+    });
+    setRows(updatedRows);
+    
+    // Update expanded card if it's the current one
+    if (expandedCard && expandedCard.id === tableId) {
+      const updatedCard = updatedRows.find(row => row.id === tableId);
+      setExpandedCard(updatedCard);
+    }
+  };
+
+  const addComment = () => {
+    const value = newComment.trim();
+    if (!value) return;
+    setComments(prev => [...prev, { id: Date.now(), text: value }]);
+    setNewComment("");
+  };
+
+  useEffect(() => {
+    if (showComments) {
+      // focus the input when comments panel opens
+      setTimeout(() => commentInputRef.current && commentInputRef.current.focus(), 0);
+    }
+  }, [showComments, expandedCard]);
+
+  return (
+    <div className="mx-auto max-w-screen-md md:max-w-screen-2xl space-y-0 min-h-0 text-sm md:text-base">
+      {!expandedCard && (
+        <div className="sticky top-0 z-40 bg-blue-500 border-b border-blue-600">
+          <div className="h-14 px-3 md:px-4 flex items-center justify-between">
+            <button aria-label="Menu" className="h-11 w-11 rounded-xl border border-blue-400 bg-blue-400 hover:bg-blue-300 flex items-center justify-center active:scale-95 transition">
+              <Menu className="h-5 w-5 text-white" />
+            </button>
+            <div className="flex items-center gap-2 mb-2">
+              <button aria-label="Notifications" className="h-11 w-11 rounded-xl border border-blue-400 bg-blue-400 hover:bg-blue-300 flex items-center justify-center active:scale-95 transition">
+                <Bell className="h-5 w-5 text-white" />
+              </button>
+              <button aria-label="Profile" className="h-11 w-11 rounded-xl border border-blue-400 bg-blue-400 hover:bg-blue-300 flex items-center justify-center active:scale-95 transition">
+                <User className="h-5 w-5 text-white" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-3 md:px-4 py-3">
+        {/* Cards Grid */}
+        {!expandedCard && !showSeatPageView && (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            {filteredRows.map((row) => {
+              // Enhanced color scheme based on task type
+              const getTaskColors = (taskId) => {
+                switch (taskId) {
+                  case "1": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                  case "2": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                  case "3": return "bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 hover:shadow-orange-200/50";
+                  case "4": return "bg-gradient-to-br from-red-50 to-red-100 border-red-200 hover:shadow-red-200/50";
+                  case "5": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                  case "6": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                  default: return "bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-gray-200/50";
+                }
+              };
+              
+              const backgroundClass = getTaskColors(row.currentTask.id);
+              return (
+              <div 
+                key={row.id} 
+                className={`rounded-xl md:rounded-2xl border-2 p-3 md:p-4 space-y-2 md:space-y-4 ${backgroundClass} cursor-pointer hover:shadow-xl active:scale-[0.98] transition-all duration-200 text-xs`}
+                onClick={() => handleTableClick(row)}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-foreground/60 font-medium">Table ID</div>
+                    <div className="font-mono font-bold text-sm text-gray-800">{row.id}</div>
+                    {row.selectedSeats && row.selectedSeats.length > 0 && (
+                      <div className="text-xs text-green-600 font-medium mt-1">
+                        🪑 Seats {row.selectedSeats.sort((a, b) => a - b).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-foreground/60 font-medium">Task</div>
+                    <div className="text-xs font-semibold text-gray-800">{row.currentTask.name}</div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-foreground/70">
+                  <div className="flex items-center gap-2 bg-white/50 rounded-lg px-2 py-1">
+                    <Clock className="h-3.5 w-3.5 text-blue-600" />
+                    <span className="text-xs font-medium text-gray-700">{row.minutes} mins</span>
+                  </div>
+                  <div className="px-2 py-1 rounded-lg bg-white/50">
+                    <span className="text-xs font-medium text-gray-700">Task {row.currentTask.id}</span>
+                  </div>
+                </div>
+              </div>
+              );
+            })}
+          </div>
+        )}
+      {expandedCard && expandedCard.type === "bar" && (
+        <div className="w-full h-[100dvh]">
+          <div className="mx-auto h-full max-w-none md:max-w-6xl rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-2xl bg-gradient-to-br from-white to-gray-50 overflow-hidden flex flex-col">
+            {/* Bar Table Header */}
+            <div className="p-3 md:p-4 border-b-2 border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50 relative text-xs">
+              {/* Close */}
+              <button
+                onClick={() => {
+                  setExpandedCard(null);
+                  setActiveOrderTab("1");
+                  setShowMenu(false);
+                  setShowCart(false);
+                  setShowComments(false);
+                }}
+                className="absolute top-3 right-3 md:top-4 md:right-4 h-9 w-9 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-md"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4 text-red-600" />
+              </button>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl md:text-2xl font-bold text-purple-800">Bar Table Management</h2>
+                  <p className="text-sm text-purple-600">Manage individual seats at the bar</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select className="px-3 py-2 rounded-lg border-2 border-purple-300 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-purple-400">
+                    <option>Seat 1</option>
+                    <option>Seat 2</option>
+                    <option>Seat 3</option>
+                    <option>Seat 4</option>
+                    <option>Seat 5</option>
+                    <option>Seat 6</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Bar Seats Grid */}
+            <div className="flex-1 p-4 md:p-6 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 md:gap-6">
+                {barSeats.map((seat) => {
+                  // Enhanced color scheme based on task type
+                  const getTaskColors = (taskId) => {
+                    switch (taskId) {
+                      case "1": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                      case "2": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                      case "3": return "bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 hover:shadow-orange-200/50";
+                      case "4": return "bg-gradient-to-br from-red-50 to-red-100 border-red-200 hover:shadow-red-200/50";
+                      case "5": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                      case "6": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                      default: return "bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-gray-200/50";
+                    }
+                  };
+                  
+                  const backgroundClass = getTaskColors(seat.currentTask.id);
+                  
+                  return (
+                    <div 
+                      key={seat.id} 
+                      onClick={() => handleBarSeatClick(seat)}
+                      className={`rounded-xl md:rounded-2xl border-2 p-4 md:p-6 space-y-3 md:space-y-4 ${backgroundClass} shadow-lg hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs text-foreground/60 font-medium">Seat ID</div>
+                          <div className="font-mono font-bold text-lg text-gray-800">Seat {seat.id}</div>
+                          {seat.selectedSeats && seat.selectedSeats.length > 0 && (
+                            <div className="text-xs text-green-600 font-medium mt-1">
+                              🪑 Seats {seat.selectedSeats.sort((a, b) => a - b).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs text-foreground/60 font-medium">Status</div>
+                          <div className={`text-xs font-semibold px-2 py-1 rounded-md ${
+                            seat.status === "Available" ? "bg-green-100 text-green-800" :
+                            seat.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                            seat.status === "Completed" ? "bg-green-100 text-green-800" :
+                            "bg-yellow-100 text-yellow-800"
+                          }`}>
+                            {seat.status}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-foreground/60 font-medium">Current Task</span>
+                          <span className="text-sm font-semibold text-gray-800">{seat.currentTask.name}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-foreground/60 font-medium">Time</span>
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-blue-600" />
+                            <span className="text-sm font-medium text-gray-700">{seat.minutes} min</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-foreground/60 font-medium">Task Status</span>
+                          <span className={`text-xs font-semibold px-2 py-1 rounded-md ${
+                            seat.currentTask.currentStatus === "Pending" ? "bg-yellow-100 text-yellow-800" :
+                            seat.currentTask.currentStatus === "Completed" || seat.currentTask.currentStatus === "Served" || seat.currentTask.currentStatus === "Seated" || seat.currentTask.currentStatus === "Placed" || seat.currentTask.currentStatus === "Paid" ? "bg-green-100 text-green-800" :
+                            "bg-blue-100 text-blue-800"
+                          }`}>
+                            {seat.currentTask.currentStatus}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-foreground/70">
+                          <div className="flex items-center gap-2 bg-white/50 rounded-lg px-2 py-1">
+                            <span className="text-xs font-medium text-gray-700">Task {seat.currentTask.id}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {expandedCard && expandedCard.type === "bar-seat" && (
+        <div className="w-full h-[100dvh]">
+          <div className="mx-auto h-full max-w-none md:max-w-5xl rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-2xl bg-gradient-to-br from-white to-gray-50 overflow-hidden flex flex-col">
+            {/* Bar Seat Header */}
+            <div className="p-3 md:p-4 border-b-2 border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50 relative text-xs">
+              <button
+                onClick={() => {
+                  setExpandedCard(null);
+                  setSelectedBarSeat(null);
+                  setActiveOrderTab("1");
+                  setShowMenu(false);
+                  setShowCart(false);
+                  setShowComments(false);
+                  // Return to seats page if we have a selected table for seats
+                  if (selectedTableForSeats) {
+                    setShowSeatPageView(true);
+                  }
+                }}
+                className="absolute top-3 right-3 md:top-4 md:right-4 h-9 w-9 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-md"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4 text-red-600" />
+              </button>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 md:gap-4">
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Bar Seat ID</div>
+                      <div className="font-mono font-bold text-sm text-gray-800">Seat {expandedCard.seat.id}</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Task ID</div>
+                      <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.seat.currentTask.id}</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                      <div className="font-semibold text-sm text-gray-800">{expandedCard.seat.currentTask.name}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Content */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              {/* Menu Section */}
+              {showMenu && (
+                <div className="md:w-full border-b md:border-b-0 border-border/30 overflow-y-auto p-3 md:p-4">
+                  {/* Single Seat Tab - Always shows the seat number */}
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-lg">
+                      <button
+                        className="px-3 py-2 rounded-md text-sm font-medium bg-white text-purple-600 shadow-sm"
+                      >
+                        Seat {expandedCard.seat.id}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Menu Content */}
+                  <div className="space-y-4">
+                    {menuCategories.map((category) => (
+                      <div key={category.title} className="space-y-2">
+                        <h3 className="text-lg font-semibold text-foreground border-b border-border/30 pb-1">
+                          {category.title}
+                        </h3>
+                        <div className="space-y-2">
+                          {category.items.map((item) => {
+                            const currentQuantity = newGetQuantityForItem(item.id, expandedCard.seat.id.toString());
+                            
+                            return (
+                              <div key={item.id} className="rounded-lg border border-border/30 bg-background p-3 space-y-2">
+                                <div className="flex items-start">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-foreground">{item.name}</h4>
+                                    <p className="text-sm text-foreground/70">{item.description}</p>
+                                    <p className="text-xs text-purple-600 font-medium mt-1">
+                                      For Seat {expandedCard.seat.id}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between -mt-4">
+                                  <p className="text-sm font-medium text-primary">{item.price}</p>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => newUpdateCartItem(item.id, -1, expandedCard.seat.id.toString())}
+                                      className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                      disabled={!currentQuantity}
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </button>
+                                    <span className="min-w-[1.5rem] text-center font-medium text-sm">
+                                      {currentQuantity}
+                                    </span>
+                                    <button
+                                      onClick={() => newUpdateCartItem(item.id, 1, expandedCard.seat.id.toString())}
+                                      className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Status Section when menu is not shown */}
+              {!showMenu && (
+                <div className="flex-1 p-8 md:p-6 overflow-y-auto">
+                  <div className="space-y-4">
+                    {expandedCard.seat.currentTask.id === "4" ? (
+                      <div className="space-y-4">
+                        {/* Order Summary Header */}
+                            <div className="text-center mb-4">
+                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">Order Summary - Seat {expandedCard.seat.id}</h3>
+                            </div>
+                            
+                        {/* Order Items */}
+                        {expandedCard.seat.serveHistory && expandedCard.seat.serveHistory.length > 0 ? (
+                          <div className="space-y-3">
+                            {expandedCard.seat.serveHistory.map((order, orderIndex) => (
+                              <div key={orderIndex} className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border-2 border-purple-200 p-4 shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-bold text-purple-700">Order #{order.orderNumber}</span>
+                                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">{order.timestamp}</span>
+                                  </div>
+                                  
+                                  <div className="space-y-2">
+                                  {order.items && order.items.map((item, itemIndex) => (
+                                    <div key={itemIndex} className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm border border-purple-100">
+                                      {/* Checkbox */}
+                                          <input
+                                            type="checkbox"
+                                            checked={item.served || false}
+                                            onChange={(e) => {
+                                          newUpdateItemServed(orderIndex, itemIndex, e.target.checked);
+                                        }}
+                                        className="w-5 h-5 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                                      />
+                                      
+                                      {/* Item Name */}
+                                          <div className="flex-1">
+                                        <div className="font-medium text-gray-800">{item.name}</div>
+                                            </div>
+                                      
+                                      {/* Seat Number */}
+                                      <div className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
+                                        Seat {item.seatId}
+                                            </div>
+                                      
+                                      {/* Quantity */}
+                                      <div className="text-sm font-bold text-green-600 bg-green-100 px-2 py-1 rounded-md">
+                                        Qty: {item.quantity}
+                                          </div>
+                                      
+                                      {/* Kitchen Status */}
+                                      <select
+                                        value={item.kitchenStatus || "Preparing"}
+                                        onChange={(e) => {
+                                          newUpdateKitchenStatus(orderIndex, itemIndex, e.target.value);
+                                        }}
+                                        className="text-xs font-medium text-orange-600 bg-orange-100 border border-orange-300 rounded px-1 py-1 focus:ring-1 focus:ring-orange-400"
+                                      >
+                                        <option value="Preparing">Preparing</option>
+                                        <option value="Prepared">Prepared</option>
+                                        <option value="Ready">Ready</option>
+                                      </select>
+                                      
+                                      {/* Price */}
+                                      <div className="text-sm font-bold text-gray-800">
+                                        {item.price}
+                                        </div>
+                                      
+                                      {/* Served Status */}
+                                        {item.served && (
+                                          <div className="ml-2">
+                                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                              ✓ Served
+                                            </span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8">
+                            <div className="text-gray-500 text-lg font-medium mb-2">No orders to serve</div>
+                            <div className="text-gray-400 text-sm">Place an order first to see it here</div>
+                          </div>
+                        )}
+                      </div>
+                    ) : expandedCard.seat.currentTask.id === "6" ? (
+                      <div className="w-full max-w-lg mx-auto">
+                        <div className="rounded-2xl border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 space-y-6 shadow-lg">
+                          <div className="text-center">
+                            <h2 className="text-lg font-bold text-gray-800 mb-2">Payment Summary - Seat {expandedCard.seat.id}</h2>
+                          </div>
+
+                          {/* Split Payment - Seat Tabs for Bar Seat */}
+                                    {(() => {
+                                      const allItems = [];
+                                expandedCard.seat.serveHistory?.forEach(serve => {
+                                        serve.items?.forEach(item => {
+                                          allItems.push({
+                                            ...item,
+                                            orderNumber: serve.orderNumber,
+                                            timestamp: serve.timestamp,
+                                            seatId: item.seatId || expandedCard.seat.id.toString()
+                                          });
+                                        });
+                                      });
+                                
+                                const itemsBySeat = {};
+                                
+                                allItems.forEach(item => {
+                                  const seatId = item.seatId;
+                                  if (seatId) { // Process all items with their actual seatId
+                                    if (!itemsBySeat[seatId]) {
+                                      itemsBySeat[seatId] = [];
+                                    }
+                                    itemsBySeat[seatId].push(item);
+                                  }
+                                      });
+                                      
+                                      const seatTotals = {};
+                                      allItems.forEach(item => {
+                                        const seatId = item.seatId;
+                                  if (seatId) { // Process all items with their actual seatId
+                                        const price = parseFloat(item.price.replace('$', ''));
+                                        const itemTotal = price * item.quantity;
+                                        
+                                        if (!seatTotals[seatId]) {
+                                          seatTotals[seatId] = 0;
+                                        }
+                                        seatTotals[seatId] += itemTotal;
+                                  }
+                                });
+                                
+                                const seatIds = Object.keys(itemsBySeat).sort((a, b) => {
+                                  return parseInt(a) - parseInt(b);
+                                      });
+                                      
+                                      return (
+                                  <div className="space-y-4">
+                                    {/* Seat Tabs */}
+                                    <div className="flex flex-wrap gap-2">
+                                      {seatIds.map(seatId => (
+                                        <button
+                                          key={seatId}
+                                          onClick={() => setActiveOrderTab(seatId)}
+                                          className={`px-4 py-2 rounded-lg border-2 transition-all duration-200 font-medium text-sm ${
+                                            activeOrderTab === seatId
+                                              ? 'border-purple-400 bg-purple-50 text-purple-800 ring-2 ring-purple-200'
+                                              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                          }`}
+                                        >
+                                          {`Seat ${seatId}`}
+                                          {seatPaidStatus[seatId] && <span className="ml-1">✓</span>}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    {/* Active Seat Payment */}
+                                    {activeOrderTab && itemsBySeat[activeOrderTab] && (
+                                        <div className="bg-white/70 rounded-lg p-4 shadow-sm border-2 border-purple-100">
+                                        <div className="flex items-center justify-between mb-4">
+                                          <h4 className="text-lg font-bold text-purple-600">
+                                            {`🪑 Seat ${activeOrderTab}`}
+                                          </h4>
+                                          <div className="text-xl font-bold text-green-600">
+                                            ${(seatTotals[activeOrderTab] || 0).toFixed(2)}
+                                            </div>
+                                            </div>
+
+                                        {/* Items for this seat */}
+                                        <div className="space-y-2 mb-4">
+                                          {itemsBySeat[activeOrderTab].map((item, index) => {
+                                              const itemTotal = (parseFloat(item.price.replace('$', '')) * item.quantity).toFixed(2);
+                                              return (
+                                                <div key={index} className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
+                                                  <div className="flex-1">
+                                                    <div className="text-sm font-medium text-gray-800">{item.name}</div>
+                                                    <div className="text-xs text-gray-500">Order {item.orderNumber} • {item.timestamp}</div>
+                                                  </div>
+                                                  <div className="text-right">
+                                                    <div className="text-sm font-medium text-gray-800">x {item.quantity}</div>
+                                                    <div className="text-sm font-bold text-green-600">${itemTotal}</div>
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                              </div>
+
+                                        {/* Payment Methods for this seat */}
+                              <div className="space-y-3">
+                                          <h5 className="text-sm font-semibold text-gray-700">Select Payment Method</h5>
+                                {paymentMethods.map((method) => {
+                                  const Icon = method.icon;
+                                            const isSelected = seatPaymentMethods[activeOrderTab] === method.id;
+                                  
+                                  return (
+                                    <button
+                                      key={method.id}
+                                                onClick={() => handleSeatPayment(activeOrderTab, method.id)}
+                                                disabled={seatPaidStatus[activeOrderTab]}
+                                                className={`w-full p-3 rounded-xl border-2 transition-all duration-200 flex items-center gap-3 shadow-sm ${
+                                        isSelected
+                                          ? `border-purple-400 bg-purple-50 ring-2 ring-purple-200`
+                                          : `border-gray-300 bg-white hover:bg-gray-50`
+                                                } ${seatPaidStatus[activeOrderTab] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                    >
+                                      <div className={`p-2 rounded-lg ${method.color} text-white shadow-sm`}>
+                                                  <Icon className="h-4 w-4" />
+                                      </div>
+                                      <div className="flex-1 text-left">
+                                        <div className="font-semibold text-sm text-gray-800">{method.name}</div>
+                                        <div className="text-xs text-gray-600">{method.description}</div>
+                                      </div>
+                                      {isSelected && (
+                                                  <CheckCircle className="h-4 w-4 text-purple-600" />
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                                        {/* Pay Button for this seat */}
+                              <button
+                                          onClick={() => handlePayment(activeOrderTab)}
+                                          disabled={!seatPaymentMethods[activeOrderTab] || seatPaidStatus[activeOrderTab]}
+                                          className={`w-full py-3 px-4 rounded-xl font-bold transition-all duration-200 text-sm shadow-lg mt-4 ${
+                                            seatPaidStatus[activeOrderTab]
+                                    ? 'bg-green-500 text-white cursor-not-allowed'
+                                    : 'bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                }`}
+                              >
+                                          {seatPaidStatus[activeOrderTab] ? 'Paid ✓' : `Pay $${(seatTotals[activeOrderTab] || 0).toFixed(2)}`}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-foreground/60">Status:</span>
+                          <select
+                            value={expandedCard.seat.currentTask.currentStatus}
+                            onChange={(e) => {
+                              setBarSeats(prev => prev.map(seat => 
+                                seat.id === expandedCard.seat.id 
+                                  ? { ...seat, currentTask: { ...seat.currentTask, currentStatus: e.target.value } }
+                                  : seat
+                              ));
+                              setSelectedBarSeat(prev => prev ? { ...prev, currentTask: { ...prev.currentTask, currentStatus: e.target.value } } : null);
+                              // Update expanded card
+                              setExpandedCard(prev => ({
+                                ...prev,
+                                seat: {
+                                  ...prev.seat,
+                                  currentTask: {
+                                    ...prev.seat.currentTask,
+                                    currentStatus: e.target.value
+                                  }
+                                }
+                              }));
+                            }}
+                            className="px-2 py-1 rounded border border-border/50 bg-card text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                          >
+                            {expandedCard.seat.currentTask.statusOptions.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-purple-50">
+              <div className="flex items-center gap-2">
+                {expandedCard.seat.currentTask.id === "4" && (
+                  <button
+                    onClick={() => {
+                      // Immediately jump to Order task when clicking Order More in Serve
+                      if (selectedBarSeat) {
+                        const updatedSeats = barSeats.map(seat => {
+                          if (seat.id === selectedBarSeat.id) {
+                            seat.currentTaskIndex = 2; // Order task index
+                            seat.currentTask = { ...taskFlow[2] };
+                            return seat;
+                          }
+                          return seat;
+                        });
+                        setBarSeats(updatedSeats);
+                        setSelectedBarSeat(updatedSeats.find(s => s.id === selectedBarSeat.id));
+                        setExpandedCard({ 
+                          id: `BAR-SEAT-${selectedBarSeat.id}`, 
+                          type: "bar-seat", 
+                          seat: updatedSeats.find(s => s.id === selectedBarSeat.id),
+                          selectedSeats: [selectedBarSeat.id]
+                        });
+                      }
+                    }}
+                    className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
+                      orderMoreSelected 
+                        ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 
+                        : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700'
+                    }`}
+                  >
+                    <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${
+                      orderMoreSelected 
+                        ? 'border-green-500 bg-green-500' 
+                        : 'border-gray-400 bg-white'
+                    }`}>
+                      {orderMoreSelected && (
+                        <div className="h-2 w-2 rounded bg-white"></div>
+                      )}
+                    </div>
+                    <span className="text-xs md:text-sm font-medium">Order More</span>
+                              </button>
+                )}
+                {expandedCard.seat.currentTask.id === "3" && (
+                  <button
+                    onClick={() => setShowMenu(!showMenu)}
+                    className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
+                  >
+                    <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
+                    <span className="text-xs font-medium text-orange-700">Menu</span>
+                  </button>
+                )}
+                {showMenu && (
+                  <button
+                    onClick={() => setShowCart(true)}
+                    className="flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 border-orange-300 bg-orange-50 hover:bg-orange-100 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-md"
+                  >
+                    <ShoppingCart className="h-4 w-4 md:h-5 md:w-5 text-orange-600" />
+                    <span className="text-xs md:text-sm font-medium text-orange-700">Cart</span>
+                    {getTotalItems() > 0 && (
+                      <span className="ml-1 h-5 min-w-[1.25rem] px-1 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
+                        {newGetTotalItems()}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    // Handle next task for bar seat
+                    if (selectedBarSeat) {
+                      const updatedSeats = barSeats.map(seat => {
+                        if (seat.id === selectedBarSeat.id) {
+                          if (seat.currentTaskIndex < taskFlow.length - 1) {
+                            seat.currentTaskIndex++;
+                            seat.currentTask = { ...taskFlow[seat.currentTaskIndex] };
+                            seat.status = "Pending";
+                          } else {
+                            seat.currentTaskIndex = 0;
+                            seat.currentTask = { ...taskFlow[0] };
+                            seat.status = "Pending";
+                            seat.serveHistory = [];
+                          }
+                        }
+                        return seat;
+                      });
+                      setBarSeats(updatedSeats);
+                      setSelectedBarSeat(updatedSeats.find(s => s.id === selectedBarSeat.id));
+                      setExpandedCard({ 
+                        id: `BAR-SEAT-${selectedBarSeat.id}`, 
+                        type: "bar-seat", 
+                        seat: updatedSeats.find(s => s.id === selectedBarSeat.id),
+                        selectedSeats: [selectedBarSeat.id]
+                      });
+                    }
+                  }}
+                  className="flex-1 h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg font-medium"
+                >
+                  <span className="text-xs md:text-sm">Next Task</span>
+                  <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bar Seat Cart Bottom Sheet */}
+      {(expandedCard && expandedCard.type === "bar-seat" && showMenu && showCart) && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowCart(false)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 mx-auto max-w-screen-md md:max-w-2xl bg-card border border-border/50 rounded-t-2xl shadow-xl p-4 md:p-6 max-h-[65vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">Cart - Seat {expandedCard.seat.id}</h3>
+              <button
+                onClick={() => setShowCart(false)}
+                className="h-8 w-8 rounded-md border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {newGetCartItems().length === 0 ? (
+              <p className="text-foreground/60 text-sm py-8 text-center">No items in cart</p>
+            ) : (
+              <div className="space-y-3">
+                {newGetCartItems().map((item, index) => (
+                  <div key={`${item.id}-${item.seatId}-${index}`} className="flex items-center justify-between py-3 border-b border-border/30 last:border-b-0">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{item.name}</div>
+                      <div className="text-xs text-foreground/60">{item.price}</div>
+                      <div className="text-xs text-purple-600 font-medium">
+                        For Seat {item.seatId}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => newUpdateCartItem(item.id, -1, item.seatId)}
+                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="min-w-[1.5rem] text-center text-sm font-medium">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => newUpdateCartItem(item.id, 1, item.seatId)}
+                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="pt-3 border-t border-border/30 space-y-0">
+                  <input
+                    type="text"
+                    value={cartNote}
+                    onChange={(e) => setCartNote(e.target.value)}
+                    placeholder="Add a note (e.g., no onions)"
+                    className="w-full h-9 px-3 rounded-lg border border-border/50 bg-card text-xs outline-none focus:ring-2 focus:ring-primary/30 mt-0 mb-1"
+                  />
+                  <button
+                    onClick={() => {
+                      newPlaceOrder();
+                      const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
+                      alert(`Order placed successfully for Seat ${expandedCard.seat.id}${noteMsg}!`);
+                    }}
+                    className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 active:scale-95 transition mt-2"
+                  >
+                    Place Order
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {expandedCard && expandedCard.seatNumber && expandedCard.tableId && (
+        <div className="w-full h-[100dvh]">
+          <div className="mx-auto h-full max-w-none md:max-w-5xl rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-2xl bg-gradient-to-br from-white to-gray-50 overflow-hidden flex flex-col">
+            {/* Table Seat Header - Copy from Bar Seat */}
+            <div className="p-3 md:p-4 border-b-2 border-gray-200 bg-gradient-to-r from-purple-50 to-indigo-50 relative text-xs">
+              <button
+                onClick={() => {
+                  setExpandedCard(null);
+                  // Return to seats page instead of main tables page
+                  setShowSeatPageView(true);
+                  setShowMenu(false);
+                  setShowCart(false);
+                  setShowComments(false);
+                }}
+                className="absolute top-3 right-3 md:top-4 md:right-4 h-9 w-9 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-md"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4 text-red-600" />
+              </button>
+              <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3 md:gap-4">
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Table Seat ID</div>
+                      <div className="font-mono font-bold text-sm text-gray-800">Seat {expandedCard.seatNumber}</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Task ID</div>
+                      <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.currentTask.id}</div>
+                    </div>
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                      <div className="font-semibold text-sm text-gray-800">{expandedCard.currentTask.name}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Content - Copy from Bar Seat */}
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+              {/* Menu Section */}
+              {showMenu && (
+                <div className="md:w-full border-b md:border-b-0 border-border/30 overflow-y-auto p-3 md:p-4">
+                  {/* Single Seat Tab - Always shows the seat number */}
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-lg">
+                      <button
+                        className="px-3 py-2 rounded-md text-sm font-medium bg-white text-purple-600 shadow-sm"
+                      >
+                        Seat {expandedCard.seatNumber}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Menu Content */}
+                  <div className="space-y-4">
+                    {menuCategories.map((category) => (
+                      <div key={category.title} className="space-y-2">
+                        <h3 className="text-lg font-semibold text-foreground border-b border-border/30 pb-1">
+                          {category.title}
+                        </h3>
+                        <div className="space-y-2">
+                          {category.items.map((item) => {
+                            const currentQuantity = newGetQuantityForItem(item.id, expandedCard.seatNumber.toString());
+                            
+                            return (
+                              <div key={item.id} className="rounded-lg border border-border/30 bg-background p-3 space-y-2">
+                                <div className="flex items-start">
+                                  <div className="flex-1">
+                                    <h4 className="font-medium text-foreground">{item.name}</h4>
+                                    <p className="text-sm text-foreground/70">{item.description}</p>
+                                    <p className="text-xs text-purple-600 font-medium mt-1">
+                                      For Seat {expandedCard.seatNumber}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between -mt-4">
+                                  <p className="text-sm font-medium text-primary">{item.price}</p>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => newUpdateCartItem(item.id, -1, expandedCard.seatNumber.toString())}
+                                      className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                      disabled={!currentQuantity}
+                                    >
+                                      <Minus className="h-3 w-3" />
+                                    </button>
+                                    <span className="min-w-[1.5rem] text-center font-medium text-sm">
+                                      {currentQuantity}
+                                    </span>
+                                    <button
+                                      onClick={() => newUpdateCartItem(item.id, 1, expandedCard.seatNumber.toString())}
+                                      className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                    >
+                                      <Plus className="h-3 w-3" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Status Section when menu is not shown */}
+              {!showMenu && (
+                <div className="flex-1 p-8 md:p-6 overflow-y-auto">
+                  <div className="space-y-4">
+                    {expandedCard.currentTask.id === "4" ? (
+                      <div className="space-y-4">
+                        {/* Order Summary Header */}
+                        <div className="text-center mb-4">
+                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">Order Summary - Seat {expandedCard.seatNumber}</h3>
+                        </div>
+                        
+                        {/* Order Items */}
+                        {newGetServeOrders().length > 0 ? (
+                          <div className="space-y-3">
+                            {newGetServeOrders().map((order, orderIndex) => (
+                              <div key={orderIndex} className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl border-2 border-purple-200 p-4 shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-bold text-purple-700">Order #{order.orderNumber}</span>
+                                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">{order.timestamp}</span>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                  {order.items && order.items.map((item, itemIndex) => (
+                                    <div key={itemIndex} className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm border border-purple-100">
+                                      {/* Checkbox */}
+                                      <input
+                                        type="checkbox"
+                                        checked={item.served || false}
+                                        onChange={(e) => {
+                                          newUpdateItemServed(orderIndex, itemIndex, e.target.checked);
+                                        }}
+                                        className="w-5 h-5 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
+                                      />
+                                      
+                                      {/* Item Name */}
+                                      <div className="flex-1">
+                                        <div className="font-medium text-gray-800">{item.name}</div>
+                                      </div>
+                                      
+                                      {/* Seat Number */}
+                                      <div className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
+                                        Seat {item.seatId}
+                                      </div>
+                                      
+                                      {/* Quantity */}
+                                      <div className="text-sm font-bold text-green-600 bg-green-100 px-2 py-1 rounded-md">
+                                        Qty: {item.quantity}
+                                      </div>
+                                      
+                                      {/* Kitchen Status */}
+                                      <select
+                                        value={item.kitchenStatus || "Preparing"}
+                                        onChange={(e) => {
+                                          newUpdateKitchenStatus(orderIndex, itemIndex, e.target.value);
+                                        }}
+                                        className="text-xs font-medium text-orange-600 bg-orange-100 border border-orange-300 rounded px-1 py-1 focus:ring-1 focus:ring-orange-400"
+                                      >
+                                        <option value="Preparing">Preparing</option>
+                                        <option value="Prepared">Prepared</option>
+                                        <option value="Ready">Ready</option>
+                                      </select>
+                                      
+                                      {/* Price */}
+                                      <div className="text-sm font-bold text-gray-800">
+                                        {item.price}
+                                      </div>
+                                      
+                                      {/* Served Status */}
+                                      {item.served && (
+                                        <div className="ml-2">
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            ✓ Served
+                                          </span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center py-8">
+                            <div className="text-gray-500 text-lg font-medium mb-2">No orders to serve</div>
+                            <div className="text-gray-400 text-sm">Place an order first to see it here</div>
+                          </div>
+                        )}
+                      </div>
+                    ) : expandedCard.currentTask.id === "6" ? (
+                      <div className="w-full max-w-lg mx-auto">
+                        <div className="rounded-2xl border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 space-y-6 shadow-lg">
+                          <div className="text-center">
+                            <h2 className="text-lg font-bold text-gray-800 mb-2">Payment Summary - Seat {expandedCard.seatNumber}</h2>
+                          </div>
+
+                          {/* Split Payment - Seat Tabs for Table Seat */}
+                              {(() => {
+                                const allItems = [];
+                                newGetServeOrders()?.forEach(serve => {
+                                  serve.items?.forEach(item => {
+                                    allItems.push({
+                                      ...item,
+                                      orderNumber: serve.orderNumber,
+                                      timestamp: serve.timestamp,
+                                      seatId: item.seatId || expandedCard.seatNumber.toString()
+                                    });
+                                  });
+                                });
+                                
+                                const itemsBySeat = {};
+                                
+                                allItems.forEach(item => {
+                                  const seatId = item.seatId;
+                                  if (seatId) { // Process all items with their actual seatId
+                                    if (!itemsBySeat[seatId]) {
+                                      itemsBySeat[seatId] = [];
+                                    }
+                                    itemsBySeat[seatId].push(item);
+                                  }
+                                });
+                                
+                                const seatTotals = {};
+                                allItems.forEach(item => {
+                                  const seatId = item.seatId;
+                                  if (seatId) { // Process all items with their actual seatId
+                                    const price = parseFloat(item.price.replace('$', ''));
+                                    const itemTotal = price * item.quantity;
+                                    
+                                    if (!seatTotals[seatId]) {
+                                      seatTotals[seatId] = 0;
+                                    }
+                                    seatTotals[seatId] += itemTotal;
+                                  }
+                                });
+                                
+                                const seatIds = Object.keys(itemsBySeat).sort((a, b) => {
+                                  return parseInt(a) - parseInt(b);
+                                });
+                                
+                                return (
+                                  <div className="space-y-4">
+                                    {/* Seat Tabs */}
+                                    <div className="flex flex-wrap gap-2">
+                                      {seatIds.map(seatId => (
+                                        <button
+                                          key={seatId}
+                                          onClick={() => setActiveOrderTab(seatId)}
+                                          className={`px-4 py-2 rounded-lg border-2 transition-all duration-200 font-medium text-sm ${
+                                            activeOrderTab === seatId
+                                              ? 'border-purple-400 bg-purple-50 text-purple-800 ring-2 ring-purple-200'
+                                              : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                          }`}
+                                        >
+                                          {`Seat ${seatId}`}
+                                          {seatPaidStatus[seatId] && <span className="ml-1">✓</span>}
+                                        </button>
+                                      ))}
+                                    </div>
+
+                                    {/* Active Seat Payment */}
+                                    {activeOrderTab && itemsBySeat[activeOrderTab] && (
+                                      <div className="bg-white/70 rounded-lg p-4 shadow-sm border-2 border-purple-100">
+                                        <div className="flex items-center justify-between mb-4">
+                                          <h4 className="text-lg font-bold text-purple-600">
+                                            {`🪑 Seat ${activeOrderTab}`}
+                                          </h4>
+                                          <div className="text-xl font-bold text-green-600">
+                                            ${(seatTotals[activeOrderTab] || 0).toFixed(2)}
+                                          </div>
+                                        </div>
+
+                                        {/* Items for this seat */}
+                                        <div className="space-y-2 mb-4">
+                                          {itemsBySeat[activeOrderTab].map((item, index) => {
+                                            const itemTotal = (parseFloat(item.price.replace('$', '')) * item.quantity).toFixed(2);
+                                            return (
+                                              <div key={index} className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
+                                                <div className="flex-1">
+                                                  <div className="text-sm font-medium text-gray-800">{item.name}</div>
+                                                  <div className="text-xs text-gray-500">Order {item.orderNumber} • {item.timestamp}</div>
+                                                </div>
+                                                <div className="text-right">
+                                                  <div className="text-sm font-medium text-gray-800">x {item.quantity}</div>
+                                                  <div className="text-sm font-bold text-green-600">${itemTotal}</div>
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+
+                                        {/* Payment Methods for this seat */}
+                                        <div className="space-y-3">
+                                          <h5 className="text-sm font-semibold text-gray-700">Select Payment Method</h5>
+                                          {paymentMethods.map((method) => {
+                                            const Icon = method.icon;
+                                            const isSelected = seatPaymentMethods[activeOrderTab] === method.id;
+                                            
+                                            return (
+                                              <button
+                                                key={method.id}
+                                                onClick={() => handleSeatPayment(activeOrderTab, method.id)}
+                                                disabled={seatPaidStatus[activeOrderTab]}
+                                                className={`w-full p-3 rounded-xl border-2 transition-all duration-200 flex items-center gap-3 shadow-sm ${
+                                                  isSelected
+                                                    ? `border-purple-400 bg-purple-50 ring-2 ring-purple-200`
+                                                    : `border-gray-300 bg-white hover:bg-gray-50`
+                                                } ${seatPaidStatus[activeOrderTab] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                              >
+                                                <div className={`p-2 rounded-lg ${method.color} text-white shadow-sm`}>
+                                                  <Icon className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex-1 text-left">
+                                                  <div className="font-semibold text-sm text-gray-800">{method.name}</div>
+                                                  <div className="text-xs text-gray-600">{method.description}</div>
+                                                </div>
+                                                {isSelected && (
+                                                  <CheckCircle className="h-4 w-4 text-purple-600" />
+                                                )}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+
+                                        {/* Pay Button for this seat */}
+                                        <button
+                                          onClick={() => handlePayment(activeOrderTab)}
+                                          disabled={!seatPaymentMethods[activeOrderTab] || seatPaidStatus[activeOrderTab]}
+                                          className={`w-full py-3 px-4 rounded-xl font-bold transition-all duration-200 text-sm shadow-lg mt-4 ${
+                                            seatPaidStatus[activeOrderTab]
+                                              ? 'bg-green-500 text-white cursor-not-allowed'
+                                              : 'bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                          }`}
+                                        >
+                                          {seatPaidStatus[activeOrderTab] ? 'Paid ✓' : `Pay $${(seatTotals[activeOrderTab] || 0).toFixed(2)}`}
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                        </div>
+                      </div>
+
+                    ) : (
+                      <div className="flex items-center justify-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-foreground/60">Status:</span>
+                          <select
+                            value={expandedCard.currentTask.currentStatus}
+                            onChange={(e) => {
+                              setTableSeats(prev => {
+                                const updatedSeats = { ...prev };
+                                const tableId = expandedCard.tableId;
+                                const seatNumber = expandedCard.seatNumber;
+                                const seatData = updatedSeats[tableId]?.[seatNumber];
+                                
+                                if (seatData) {
+                                  updatedSeats[tableId][seatNumber] = {
+                                    ...seatData,
+                                    currentTask: { ...seatData.currentTask, currentStatus: e.target.value }
+                                  };
+                                }
+                                
+                                return updatedSeats;
+                              });
+                              setExpandedCard(prev => ({
+                                ...prev,
+                                currentTask: { ...prev.currentTask, currentStatus: e.target.value }
+                              }));
+                            }}
+                            className="px-2 py-1 rounded border border-border/50 bg-card text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                          >
+                            {expandedCard.currentTask.statusOptions.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Footer - Copy from Bar Seat */}
+            <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-purple-50">
+              <div className="flex items-center gap-2">
+                {expandedCard.currentTask.id === "4" && (
+                  <button
+                    onClick={() => {
+                      // Immediately jump to Order task when clicking Order More in Serve
+                      setTableSeats(prev => {
+                        const updatedSeats = { ...prev };
+                        const tableId = expandedCard.tableId;
+                        const seatNumber = expandedCard.seatNumber;
+                        const seatData = updatedSeats[tableId]?.[seatNumber];
+                        
+                        if (seatData) {
+                          updatedSeats[tableId][seatNumber] = {
+                            ...seatData,
+                            currentTaskIndex: 2, // Order task index
+                            currentTask: { ...taskFlow[2] }
+                          };
+                        }
+                        
+                        return updatedSeats;
+                      });
+                      
+                      setExpandedCard(prev => ({
+                        ...prev,
+                        currentTaskIndex: 2,
+                        currentTask: { ...taskFlow[2] }
+                      }));
+                    }}
+                    className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
+                      orderMoreSelected 
+                        ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 
+                        : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700'
+                    }`}
+                  >
+                    <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${
+                      orderMoreSelected 
+                        ? 'border-green-500 bg-green-500' 
+                        : 'border-gray-400 bg-white'
+                    }`}>
+                      {orderMoreSelected && (
+                        <div className="h-2 w-2 rounded bg-white"></div>
+                      )}
+                    </div>
+                    <span className="text-xs md:text-sm font-medium">Order More</span>
+                  </button>
+                )}
+                {expandedCard.currentTask.id === "3" && (
+                  <button
+                    onClick={() => setShowMenu(!showMenu)}
+                    className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
+                  >
+                    <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
+                    <span className="text-xs font-medium text-orange-700">Menu</span>
+                  </button>
+                )}
+                {showMenu && (
+                  <button
+                    onClick={() => setShowCart(true)}
+                    className="flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 border-orange-300 bg-orange-50 hover:bg-orange-100 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-md"
+                  >
+                    <ShoppingCart className="h-4 w-4 md:h-5 md:w-5 text-orange-600" />
+                    <span className="text-xs md:text-sm font-medium text-orange-700">Cart</span>
+                    {newGetTotalItems() > 0 && (
+                      <span className="ml-1 h-5 min-w-[1.25rem] px-1 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
+                        {newGetTotalItems()}
+                      </span>
+                    )}
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    // Handle next task for table seat
+                    setTableSeats(prev => {
+                      const updatedSeats = { ...prev };
+                      const tableId = expandedCard.tableId;
+                      const seatNumber = expandedCard.seatNumber;
+                      const seatData = updatedSeats[tableId]?.[seatNumber];
+                      
+                      if (seatData) {
+                        if (seatData.currentTaskIndex < taskFlow.length - 1) {
+                          seatData.currentTaskIndex++;
+                          seatData.currentTask = { ...taskFlow[seatData.currentTaskIndex] };
+                          seatData.status = "Pending";
+                          } else {
+                          seatData.currentTaskIndex = 0;
+                          seatData.currentTask = { ...taskFlow[0] };
+                          seatData.status = "Pending";
+                          seatData.serveHistory = [];
+                        }
+                        
+                        updatedSeats[tableId][seatNumber] = seatData;
+                      }
+                      
+                      return updatedSeats;
+                    });
+                    
+                    setExpandedCard(prev => {
+                      if (prev.currentTaskIndex < taskFlow.length - 1) {
+                        return {
+                          ...prev,
+                          currentTaskIndex: prev.currentTaskIndex + 1,
+                          currentTask: { ...taskFlow[prev.currentTaskIndex + 1] }
+                        };
+                      } else {
+                        return {
+                          ...prev,
+                          currentTaskIndex: 0,
+                          currentTask: { ...taskFlow[0] },
+                          serveHistory: []
+                        };
+                      }
+                    });
+                  }}
+                  disabled={!canProceedToNextTask()}
+                  className="flex-1 h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg font-medium"
+                >
+                  <span className="text-xs md:text-sm">Next Task</span>
+                  <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Table Seat Cart Bottom Sheet */}
+      {(expandedCard && expandedCard.seatNumber && expandedCard.tableId && showMenu && showCart) && (
+        <div className="fixed inset-0 z-50">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowCart(false)}
+          />
+          <div className="absolute bottom-0 left-0 right-0 mx-auto max-w-screen-md md:max-w-2xl bg-card border border-border/50 rounded-t-2xl shadow-xl p-4 md:p-6 max-h-[65vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold">Cart - Seat {expandedCard.seatNumber}</h3>
+              <button
+                onClick={() => setShowCart(false)}
+                className="h-8 w-8 rounded-md border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {newGetCartItems().length === 0 ? (
+              <p className="text-foreground/60 text-sm py-8 text-center">No items in cart</p>
+            ) : (
+              <div className="space-y-3">
+                {newGetCartItems().map((item, index) => (
+                  <div key={`${item.id}-${item.seatId}-${index}`} className="flex items-center justify-between py-3 border-b border-border/30 last:border-b-0">
+                    <div className="flex-1">
+                      <div className="font-medium text-sm">{item.name}</div>
+                      <div className="text-xs text-foreground/60">{item.price}</div>
+                      <div className="text-xs text-purple-600 font-medium">
+                        For Seat {item.seatId}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => newUpdateCartItem(item.id, -1, item.seatId)}
+                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                      <span className="min-w-[1.5rem] text-center text-sm font-medium">
+                        {item.quantity}
+                      </span>
+                      <button
+                        onClick={() => newUpdateCartItem(item.id, 1, item.seatId)}
+                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <div className="pt-3 border-t border-border/30 space-y-0">
+                  <input
+                    type="text"
+                    value={cartNote}
+                    onChange={(e) => setCartNote(e.target.value)}
+                    placeholder="Add a note (e.g., no onions)"
+                    className="w-full h-9 px-3 rounded-lg border border-border/50 bg-card text-xs outline-none focus:ring-2 focus:ring-primary/30 mt-0 mb-1"
+                  />
+                  <button
+                    onClick={() => {
+                      newPlaceOrder();
+                      const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
+                      alert(`Order placed successfully for Seat ${expandedCard.seatNumber}${noteMsg}!`);
+                    }}
+                    className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 active:scale-95 transition mt-2"
+                  >
+                    Place Order
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {expandedCard && expandedCard.type !== "bar" && expandedCard.type !== "bar-seat" && !expandedCard.seatNumber && (
+        <div className="w-full h-[100dvh]">
+          <div className="mx-auto h-full max-w-none md:max-w-5xl rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-2xl bg-gradient-to-br from-white to-gray-50 overflow-hidden flex flex-col">
+          {/* Header */}
+          <div className="p-3 md:p-4 border-b-2 border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 relative text-xs">
+            {/* Close */}
+            <button
+              onClick={() => {
+                setExpandedCard(null);
+                setActiveOrderTab("1");
+                setShowMenu(false);
+                setShowCart(false);
+                setShowComments(false);
+              }}
+              className="absolute top-3 right-3 md:top-4 md:right-4 h-9 w-9 rounded-xl border-2 border-red-200 bg-red-50 hover:bg-red-100 active:scale-95 flex items-center justify-center transition-all duration-200 shadow-md"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4 text-red-600" />
+            </button>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 md:gap-4">
+                  <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                    <div className="text-xs text-gray-600 font-medium">Table ID</div>
+                    <div className="font-mono font-bold text-sm text-gray-800">
+                      {expandedCard.id}
+                      {expandedCard.seatNumber && (
+                        <span className="text-blue-600 ml-1">(Seat {expandedCard.seatNumber})</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                    <div className="text-xs text-gray-600 font-medium">Task ID</div>
+                    <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.currentTask.id}</div>
+                  </div>
+                  <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                    <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                    <div className="font-semibold text-sm text-gray-800">{expandedCard.currentTask.name}</div>
+                  </div>
+                  {expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0 && (
+                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="text-xs text-gray-600 font-medium">Seats</div>
+                      <div className="font-semibold text-sm text-green-600">🪑 {expandedCard.selectedSeats.sort((a, b) => a - b).join(', ')}</div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-3 -mt-4">
+                  <div className="flex items-center gap-2">
+                    {expandedCard.currentTask.id === "3" && (
+                      <button
+                        onClick={() => setShowMenu(!showMenu)}
+                        className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
+                      >
+                        <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
+                        <span className="text-xs font-medium text-orange-700">Menu</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setShowComments(true)}
+                      className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 md:h-4 md:w-4 text-blue-600" />
+                      <span className="text-xs font-medium text-blue-700">Comments</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2 bg-white/70 rounded-lg px-3 py-2 shadow-sm">
+                    <Clock className="h-4 w-4 text-purple-600" />
+                    <span className="text-xs font-medium text-gray-700">{expandedCard.minutes} mins</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            {/* Menu Section */}
+            {showMenu && (
+              <div className="md:w-full border-b md:border-b-0 border-border/30 overflow-y-auto p-3 md:p-4">
+                {/* Tab Navigation */}
+                {expandedCard && expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0 && (
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-lg">
+                      {expandedCard.selectedSeats.map((seat) => (
+                        <button
+                          key={seat}
+                          onClick={() => setActiveOrderTab(seat.toString())}
+                          className={`px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                            activeOrderTab === seat.toString()
+                              ? 'bg-white text-blue-600 shadow-sm'
+                              : 'text-gray-600 hover:text-gray-800'
+                          }`}
+                        >
+                          Seat {seat}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Menu Content */}
+                <div className="space-y-4">
+                  {menuCategories.map((category) => (
+                    <div key={category.title} className="space-y-2">
+                      <h3 className="text-lg font-semibold text-foreground border-b border-border/30 pb-1">
+                        {category.title}
+                      </h3>
+                      <div className="space-y-2">
+                        {category.items.map((item) => {
+                          const currentQuantity = newGetQuantityForItem(item.id, activeOrderTab);
+                          
+                          return (
+                            <div key={item.id} className="rounded-lg border border-border/30 bg-background p-3 space-y-2">
+                              <div className="flex items-start">
+                                <div className="flex-1">
+                                  <h4 className="font-medium text-foreground">{item.name}</h4>
+                                  <p className="text-sm text-foreground/70">{item.description}</p>
+                                    <p className="text-xs text-blue-600 font-medium mt-1">
+                                      Adding to Seat {activeOrderTab}
+                                    </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center justify-between -mt-4">
+                                <p className="text-sm font-medium text-primary">{item.price}</p>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => newUpdateCartItem(item.id, -1, activeOrderTab)}
+                                    className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                    disabled={!currentQuantity}
+                                  >
+                                    <Minus className="h-3 w-3" />
+                                  </button>
+                                  <span className="min-w-[1.5rem] text-center font-medium text-sm">
+                                    {currentQuantity}
+                                  </span>
+                                  <button
+                                    onClick={() => newUpdateCartItem(item.id, 1, activeOrderTab)}
+                                    className="h-7 w-7 rounded-full border border-border/50 bg-card hover:bg-muted flex items-center justify-center transition-colors"
+                                  >
+                                    <Plus className="h-3 w-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Cart Bottom Sheet */}
+            {(showMenu && showCart) && (
+                  <div className="fixed inset-0 z-50">
+                    <div
+                      className="absolute inset-0 bg-black/40"
+                      onClick={() => setShowCart(false)}
+                    />
+                    <div className="absolute bottom-0 left-0 right-0 mx-auto max-w-screen-md md:max-w-2xl bg-card border border-border/50 rounded-t-2xl shadow-xl p-4 md:p-6 max-h-[65vh] overflow-y-auto">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold">Cart</h3>
+                        <button
+                          onClick={() => setShowCart(false)}
+                          className="h-8 w-8 rounded-md border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      {newGetCartItems().length === 0 ? (
+                        <p className="text-foreground/60 text-sm py-8 text-center">No items in cart</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {newGetCartItems().map((item, index) => (
+                            <div key={`${item.id}-${item.seatId}-${index}`} className="flex items-center justify-between py-3 border-b border-border/30 last:border-b-0">
+                              <div className="flex-1">
+                                <div className="font-medium text-sm">{item.name}</div>
+                                <div className="text-xs text-foreground/60">{item.price}</div>
+                                <div className="text-xs text-blue-600 font-medium">
+                                  For {`Seat ${item.seatId}`}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => newUpdateCartItem(item.id, -1, item.seatId)}
+                                  className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <span className="min-w-[1.5rem] text-center text-sm font-medium">
+                                  {item.quantity}
+                                </span>
+                                <button
+                                  onClick={() => newUpdateCartItem(item.id, 1, item.seatId)}
+                                  className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                          <div className="pt-3 border-t border-border/30 space-y-0">
+                            <input
+                              type="text"
+                              value={cartNote}
+                              onChange={(e) => setCartNote(e.target.value)}
+                              placeholder="Add a note (e.g., no onions)"
+                              className="w-full h-9 px-3 rounded-lg border border-border/50 bg-card text-xs outline-none focus:ring-2 focus:ring-primary/30 mt-0 mb-1"
+                            />
+                            <button
+                              onClick={() => {
+                                newPlaceOrder();
+                                const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
+                                alert(`Order placed successfully${noteMsg}!`);
+                              }}
+                              className="w-full bg-primary text-primary-foreground py-3 px-4 rounded-xl font-medium hover:bg-primary/90 active:scale-95 transition mt-2"
+                            >
+                              Place Order
+                            </button>
+                          </div>
+                </div>
+              )}
+            </div>
+          </div>
+            )}
+
+            {/* Status Section when menu is not shown */}
+            {!showMenu && (
+              <div className="flex-1 p-8 md:p-6 overflow-y-auto">
+                <div className="space-y-4">
+                  {expandedCard.currentTask.id === "4" ? (
+                    <div className="space-y-4">
+                      {/* Order Summary Header */}
+                      <div className="text-center mb-4">
+                        <h3 className="text-xl font-bold text-blue-800 bg-blue-100 px-4 py-2 rounded-lg">Order Summary</h3>
+                      </div>
+                      
+                      {/* Order Items */}
+                      {(() => {
+                        // Get all orders using the new clean function
+                        const allOrders = newGetServeOrders();
+                        
+                        if (allOrders.length === 0) {
+                          return (
+                            <div className="text-center py-8">
+                              <div className="text-gray-500 text-lg font-medium mb-2">No orders to serve</div>
+                              <div className="text-gray-400 text-sm">Place an order first to see it here</div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="space-y-3">
+                            {allOrders.map((order, orderIndex) => (
+                              <div key={orderIndex} className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 p-4 shadow-lg">
+                                <div className="flex items-center justify-between mb-2">
+                                  <span className="text-sm font-bold text-blue-700">Order #{order.orderNumber}</span>
+                                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">{order.timestamp}</span>
+                            </div>
+
+                                <div className="space-y-2">
+                                  {order.items && order.items.map((item, itemIndex) => (
+                                    <div key={itemIndex} className="flex items-center gap-3 bg-white rounded-lg p-3 shadow-sm border border-blue-100">
+                                      {/* Checkbox */}
+                                          <input
+                                            type="checkbox"
+                                            checked={item.served || false}
+                                            onChange={(e) => {
+                                          newUpdateItemServed(orderIndex, itemIndex, e.target.checked);
+                                            }}
+                                            className="w-5 h-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
+                                          />
+                                      
+                                      {/* Item Name */}
+                                      <div className="flex-1">
+                                        <div className="font-medium text-gray-800">{item.name}</div>
+                                          </div>
+                                      
+                                      {/* Seat Number */}
+                                      <div className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
+                                        Seat {item.seatId}
+                                        </div>
+                                      
+                                      {/* Quantity */}
+                                      <div className="text-sm font-bold text-green-600 bg-green-100 px-2 py-1 rounded-md">
+                                        Qty: {item.quantity}
+                                      </div>
+                                      
+                                      {/* Kitchen Status */}
+                                      <select
+                                        value={item.kitchenStatus || "Preparing"}
+                                                  onChange={(e) => {
+                                          newUpdateKitchenStatus(orderIndex, itemIndex, e.target.value);
+                                        }}
+                                        className="text-xs font-medium text-orange-600 bg-orange-100 border border-orange-300 rounded px-1 py-1 focus:ring-1 focus:ring-orange-400"
+                                      >
+                                        <option value="Preparing">Preparing</option>
+                                        <option value="Prepared">Prepared</option>
+                                        <option value="Ready">Ready</option>
+                                      </select>
+                                      
+                                      {/* Price */}
+                                      <div className="text-sm font-bold text-gray-800">
+                                        {item.price}
+                                                </div>
+                                      
+                                      {/* Served Status */}
+                                                {item.served && (
+                                        <div className="ml-2">
+                                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                    ✓ Served
+                                                  </span>
+                              </div>
+                            )}
+                                  </div>
+                                ))}
+                              </div>
+                                  </div>
+                                ))}
+                              </div>
+                        );
+                      })()}
+                    </div>
+                  ) : expandedCard.currentTask.id === "6" ? (
+                    <div className="w-full max-w-lg mx-auto">
+                      <div className="rounded-2xl border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 space-y-6 shadow-lg">
+                        <div className="text-center">
+                          <h2 className="text-lg font-bold text-gray-800 mb-2">Payment Summary</h2>
+                        </div>
+
+                        {/* Split Payment - All Seats */}
+                        {(() => {
+                          const allItems = [];
+                          expandedCard.serveHistory?.forEach(serve => {
+                            serve.items?.forEach(item => {
+                              allItems.push({
+                                ...item,
+                                orderNumber: serve.orderNumber,
+                                timestamp: serve.timestamp,
+                                seatId: item.seatId
+                              });
+                            });
+                          });
+                          
+                          const itemsBySeat = {};
+                          allItems.forEach(item => {
+                            const seatId = item.seatId;
+                            if (seatId) {
+                              if (!itemsBySeat[seatId]) {
+                                itemsBySeat[seatId] = [];
+                              }
+                              itemsBySeat[seatId].push(item);
+                            }
+                          });
+                          
+                          const seatTotals = {};
+                          allItems.forEach(item => {
+                            const seatId = item.seatId;
+                            if (seatId) {
+                              const price = parseFloat(item.price.replace('$', ''));
+                              const itemTotal = price * item.quantity;
+                              
+                              if (!seatTotals[seatId]) {
+                                seatTotals[seatId] = 0;
+                              }
+                              seatTotals[seatId] += itemTotal;
+                            }
+                          });
+                          
+                          const seatIds = Object.keys(itemsBySeat).sort((a, b) => {
+                            return parseInt(a) - parseInt(b);
+                          });
+                          
+                          return (
+                            <div className="space-y-4">
+                              {/* Seat Tabs */}
+                              <div className="flex flex-wrap gap-2">
+                                {seatIds.map(seatId => (
+                                  <button
+                                    key={seatId}
+                                    onClick={() => setActiveOrderTab(seatId)}
+                                    className={`px-4 py-2 rounded-lg border-2 transition-all duration-200 font-medium text-sm ${
+                                      activeOrderTab === seatId
+                                        ? 'border-blue-400 bg-blue-50 text-blue-800 ring-2 ring-blue-200'
+                                        : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    {`Seat ${seatId}`}
+                                    {seatPaidStatus[seatId] && <span className="ml-1">✓</span>}
+                                  </button>
+                                ))}
+                              </div>
+
+                              {/* Active Seat Payment */}
+                              {activeOrderTab && itemsBySeat[activeOrderTab] && (
+                                <div className="bg-white/70 rounded-lg p-4 shadow-sm border-2 border-gray-100">
+                                  <div className="flex items-center justify-between mb-4">
+                                    <h4 className="text-lg font-bold text-blue-600">
+                                      {`🪑 Seat ${activeOrderTab}`}
+                                    </h4>
+                                    <div className="text-xl font-bold text-green-600">
+                                      ${(seatTotals[activeOrderTab] || 0).toFixed(2)}
+                                    </div>
+                                  </div>
+
+                                  {/* Items for this seat */}
+                                  <div className="space-y-2 mb-4">
+                                    {itemsBySeat[activeOrderTab].map((item, index) => {
+                                      const itemTotal = (parseFloat(item.price.replace('$', '')) * item.quantity).toFixed(2);
+                                      return (
+                                        <div key={index} className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
+                                          <div className="flex-1">
+                                            <div className="text-sm font-medium text-gray-800">{item.name}</div>
+                                            <div className="text-xs text-gray-500">Order {item.orderNumber} • {item.timestamp}</div>
+                                          </div>
+                                          <div className="text-right">
+                                            <div className="text-sm font-medium text-gray-800">x {item.quantity}</div>
+                                            <div className="text-sm font-bold text-green-600">${itemTotal}</div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Payment Methods for this seat */}
+                                  <div className="space-y-3">
+                                    <h5 className="text-sm font-semibold text-gray-700">Select Payment Method</h5>
+                                    {paymentMethods.map((method) => {
+                                      const Icon = method.icon;
+                                      const isSelected = seatPaymentMethods[activeOrderTab] === method.id;
+                                
+                                      return (
+                                        <button
+                                          key={method.id}
+                                          onClick={() => handleSeatPayment(activeOrderTab, method.id)}
+                                          disabled={seatPaidStatus[activeOrderTab]}
+                                          className={`w-full p-3 rounded-xl border-2 transition-all duration-200 flex items-center gap-3 shadow-sm ${
+                                            isSelected
+                                              ? `border-blue-400 bg-blue-50 ring-2 ring-blue-200`
+                                              : `border-gray-300 bg-white hover:bg-gray-50`
+                                          } ${seatPaidStatus[activeOrderTab] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                          <div className={`p-2 rounded-lg ${method.color} text-white shadow-sm`}>
+                                            <Icon className="h-4 w-4" />
+                                          </div>
+                                          <div className="flex-1 text-left">
+                                            <div className="font-semibold text-sm text-gray-800">{method.name}</div>
+                                            <div className="text-xs text-gray-600">{method.description}</div>
+                                          </div>
+                                          {isSelected && (
+                                            <CheckCircle className="h-4 w-4 text-blue-600" />
+                                          )}
+                                        </button>
+                                      );
+                              })}
+                            </div>
+
+                                      {/* Pay Button for this seat */}
+                                      <button
+                                        onClick={() => handlePayment(activeOrderTab)}
+                                        disabled={!seatPaymentMethods[activeOrderTab] || seatPaidStatus[activeOrderTab]}
+                                        className={`w-full py-3 px-4 rounded-xl font-bold transition-all duration-200 text-sm shadow-lg mt-4 ${
+                                          seatPaidStatus[activeOrderTab]
+                                            ? 'bg-green-500 text-white cursor-not-allowed'
+                                            : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                        }`}
+                                      >
+                                        {seatPaidStatus[activeOrderTab] ? 'Paid ✓' : `Pay $${(seatTotals[activeOrderTab] || 0).toFixed(2)}`}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {/* Payment Info */}
+                        <div className="text-center text-sm text-gray-500 py-4">
+                          Split payment between selected seats
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center gap-4">
+                        <div className="text-center">
+                          <div className="text-6xl mb-4">💳</div>
+                          <h3 className="text-lg font-semibold text-gray-700 mb-2">No Payment Required</h3>
+                          <p className="text-sm text-gray-500">Complete previous tasks to access payment</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="border-t border-border/30 bg-gradient-to-r from-gray-50 to-gray-100 p-3 md:p-4">
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  onClick={() => {
+                    setExpandedCard(null);
+                    setActiveOrderTab("1");
+                    setShowMenu(false);
+                    setShowCart(false);
+                    setShowComments(false);
+                  }}
+                  className="h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-gray-500 to-gray-600 text-white hover:from-gray-600 hover:to-gray-700 active:scale-95 transition-all duration-200 flex items-center gap-2 shadow-lg font-medium"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Back to Tables</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <div className="text-xs text-gray-600 font-medium">
+                    Task {expandedCard.currentTask.id} of {taskFlow.length}
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleNextTask}
+                  disabled={!canProceedToNextTask()}
+                  className="h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 active:scale-95 transition-all duration-200 flex items-center gap-2 shadow-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="hidden sm:inline">Next Task</span>
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Table Seat Cart Bottom Sheet */}
+        {showCart && expandedCard && expandedCard.seatNumber && expandedCard.tableId && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="bg-black/50 absolute inset-0" onClick={() => setShowCart(false)} />
+            <div className="bg-white rounded-t-3xl w-full max-w-md max-h-[80vh] overflow-hidden relative z-10">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-800">Cart - Seat {expandedCard.seatNumber}</h3>
+                  <button
+                    onClick={() => setShowCart(false)}
+                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  >
+                    <X className="h-5 w-5 text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-4 space-y-4 max-h-60 overflow-y-auto">
+                {newGetCartItems().length > 0 ? (
+                  newGetCartItems().map((item, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-800">{item.name}</h4>
+                        <p className="text-sm text-gray-500">${item.price}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => newUpdateCartItem(item.id, -1, expandedCard.seatNumber)}
+                          className="h-8 w-8 rounded-full border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                        <span className="w-8 text-center font-medium">{item.quantity}</span>
+                        <button
+                          onClick={() => newUpdateCartItem(item.id, 1, expandedCard.seatNumber)}
+                          className="h-8 w-8 rounded-full border border-gray-300 bg-white hover:bg-gray-50 flex items-center justify-center transition-colors"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center text-gray-500 py-8">Cart is empty</div>
+                )}
+              </div>
+
+              {newGetCartItems().length > 0 && (
+                <div className="p-4 border-t border-gray-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-lg font-semibold">Total Items:</span>
+                    <span className="text-lg font-bold text-blue-600">{newGetTotalItems()}</span>
+                  </div>
+                  <button
+                    onClick={newPlaceOrder}
+                    className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold hover:from-blue-600 hover:to-blue-700 active:scale-95 transition-all duration-200 shadow-lg"
+                  >
+                    Place Order
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Seat Selection Popup */}
+        {showSeatSelectionPopup && selectedTableForSeats && (
+                                          return (
+                                            <div key={index} className="flex items-center justify-between bg-gray-50 rounded-lg p-2">
+                                              <div className="flex-1">
+                                                <div className="text-sm font-medium text-gray-800">{item.name}</div>
+                                                <div className="text-xs text-gray-500">Order {item.orderNumber} • {item.timestamp}</div>
+                                              </div>
+                                              <div className="text-right">
+                                                <div className="text-sm font-medium text-gray-800">x {item.quantity}</div>
+                                                <div className="text-sm font-bold text-green-600">${itemTotal}</div>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Payment Methods for this seat */}
+                                      <div className="space-y-3">
+                                        <h5 className="text-sm font-semibold text-gray-700">Select Payment Method</h5>
+                                        {paymentMethods.map((method) => {
+                                          const Icon = method.icon;
+                                          const isSelected = seatPaymentMethods[activeOrderTab] === method.id;
+                                          
+                                          return (
+                                            <button
+                                              key={method.id}
+                                              onClick={() => handleSeatPayment(activeOrderTab, method.id)}
+                                              disabled={seatPaidStatus[activeOrderTab]}
+                                              className={`w-full p-3 rounded-xl border-2 transition-all duration-200 flex items-center gap-3 shadow-sm ${
+                                                isSelected
+                                                  ? `border-blue-400 bg-blue-50 ring-2 ring-blue-200`
+                                                  : `border-gray-300 bg-white hover:bg-gray-50`
+                                              } ${seatPaidStatus[activeOrderTab] ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                            >
+                                              <div className={`p-2 rounded-lg ${method.color} text-white shadow-sm`}>
+                                                <Icon className="h-4 w-4" />
+                                              </div>
+                                              <div className="flex-1 text-left">
+                                                <div className="font-semibold text-sm text-gray-800">{method.name}</div>
+                                                <div className="text-xs text-gray-600">{method.description}</div>
+                                              </div>
+                                              {isSelected && (
+                                                <CheckCircle className="h-4 w-4 text-blue-600" />
+                                              )}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {/* Pay Button for this seat */}
+                                      <button
+                                        onClick={() => handlePayment(activeOrderTab)}
+                                        disabled={!seatPaymentMethods[activeOrderTab] || seatPaidStatus[activeOrderTab]}
+                                        className={`w-full py-3 px-4 rounded-xl font-bold transition-all duration-200 text-sm shadow-lg mt-4 ${
+                                          seatPaidStatus[activeOrderTab]
+                                            ? 'bg-green-500 text-white cursor-not-allowed'
+                                            : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed'
+                                        }`}
+                                      >
+                                        {seatPaidStatus[activeOrderTab] ? 'Paid ✓' : `Pay $${seatTotals[activeOrderTab] || '0.00'}`}
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </>
+                        )}
+
+                        {/* Payment Info */}
+                        <div className="text-center text-xs text-gray-500 bg-gray-100 rounded-lg p-3">
+                          <p>Secure payment powered by Algobrewery</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-foreground/60">Status:</span>
+                        <select
+                          value={expandedCard.currentTask.currentStatus}
+                          onChange={(e) => updateTaskStatus(expandedCard.id, e.target.value)}
+                          className="px-2 py-1 rounded border border-border/50 bg-card text-xs outline-none focus:ring-1 focus:ring-primary/30"
+                        >
+                          {expandedCard.currentTask.statusOptions.map(option => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {showComments && (
+            <div className="px-4 md:px-6 pb-4 md:pb-6">
+              <div className="relative rounded-xl border-2 border-border bg-card p-3 md:p-4 space-y-0 text-xs shadow">
+                <button
+                  onClick={() => setShowComments(false)}
+                  aria-label="Close comments"
+                  className="absolute top-2 right-2 h-8 w-8 rounded-md border border-border/50 bg-card hover:bg-muted flex items-center justify-center"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+                <div className="pr-10 flex justify-center">
+                  <h3 className="text-lg font-semibold text-foreground text-center px-2 py-1">Comments</h3>
+                </div>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {comments.length === 0 ? (
+                    <p className="text-xs text-foreground/60 my-[5px]">No comments yet.</p>
+                  ) : (
+                    comments.map(c => (
+                      <div key={c.id} className="text-xs text-foreground bg-card rounded-md border border-border/40 p-2">
+                        {c.text}
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') addComment(); }}
+                    ref={commentInputRef}
+                    placeholder="Add a comment..."
+                    className="flex-1 h-8 md:h-10 px-3 rounded-lg md:rounded-xl border border-border/50 bg-card text-xs md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <button
+                    onClick={addComment}
+                    className="h-8 md:h-10 px-3 md:px-4 rounded-lg md:rounded-xl bg-primary text-primary-foreground text-xs md:text-sm hover:bg-primary/90 active:scale-95 transition"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Footer */}
+          <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-blue-50">
+              <div className="flex items-center gap-2">
+              {expandedCard && expandedCard.currentTask.id === "4" && (
+                <button
+                  onClick={() => {
+                    // Immediately jump to Order task when clicking Order More in Serve
+                    if (expandedCard && expandedCard.currentTask.id === "4") {
+                      const idx = rows.findIndex(r => r.id === expandedCard.id);
+                      if (idx !== -1) {
+                        const nextRows = [...rows];
+                        nextRows[idx].currentTaskIndex = 2; // Order task index
+                        nextRows[idx].currentTask = { ...taskFlow[2] };
+                        setRows(nextRows);
+                        setExpandedCard(nextRows[idx]);
+                        setOrderMoreSelected(false);
+                      }
+                    }
+                  }}
+                  className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
+                    orderMoreSelected 
+                      ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 
+                      : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  <div className={`h-4 w-4 rounded border-2 flex items-center justify-center ${
+                    orderMoreSelected 
+                      ? 'border-green-500 bg-green-500' 
+                      : 'border-gray-400 bg-white'
+                  }`}>
+                    {orderMoreSelected && (
+                      <div className="h-2 w-2 rounded bg-white"></div>
+                    )}
+                  </div>
+                  <span className="text-xs md:text-sm font-medium">Order More</span>
+                </button>
+              )}
+              {showMenu && (
+                <button
+                  onClick={() => setShowCart(true)}
+                  className="flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 border-orange-300 bg-orange-50 hover:bg-orange-100 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-md"
+                >
+                  <ShoppingCart className="h-4 w-4 md:h-5 md:w-5 text-orange-600" />
+                  <span className="text-xs md:text-sm font-medium text-orange-700">Cart</span>
+                  {getTotalItems() > 0 && (
+                    <span className="ml-1 h-5 min-w-[1.25rem] px-1 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center shadow-sm">
+                      {newGetTotalItems()}
+                    </span>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={handleNextTask}
+                disabled={!canProceedToNextTask()}
+                className="flex-1 h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg font-medium"
+              >
+                <span className="text-xs md:text-sm">Next Task</span>
+                <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
+              </button>
+            </div>
+          </div>
+
+          </div>
+        </div>
+        )}
+
+        {/* Seat Selection Modal */}
+        {showSeatSelection && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div 
+                className="absolute inset-0 bg-black/60"
+                onClick={() => {
+                  setShowSeatSelection(false);
+                  setSelectedSeats([]);
+                  setTableToSeat(null);
+                }}
+              />
+            <div className="relative bg-white rounded-2xl p-6 md:p-8 max-w-md w-full mx-4 shadow-2xl">
+              <div className="text-center mb-6">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-2">
+                  Select Seat for {tableToSeat?.id}
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Select one or more seats for this table
+                </p>
+                {selectedSeats.length > 0 && (
+                  <div className="mt-2 text-sm text-blue-600 font-medium">
+                    Selected: Seats {selectedSeats.sort((a, b) => a - b).join(', ')}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 mb-6">
+                {[1, 2, 3, 4].map((seatNumber) => (
+                  <button
+                    key={seatNumber}
+                    onClick={() => {
+                      setSelectedSeats(prev => {
+                        if (prev.includes(seatNumber)) {
+                          // Remove seat if already selected
+                          return prev.filter(seat => seat !== seatNumber);
+                        } else {
+                          // Add seat if not selected
+                          return [...prev, seatNumber];
+                        }
+                      });
+                    }}
+                    className={`p-4 rounded-xl border-2 transition-all duration-200 font-semibold ${
+                      selectedSeats.includes(seatNumber)
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-lg scale-105'
+                        : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="text-2xl">🪑</div>
+                      <span className="text-sm font-bold">Seat {seatNumber}</span>
+                      {selectedSeats.includes(seatNumber) && (
+                        <div className="text-xs text-blue-600 font-bold">✓</div>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowSeatSelection(false);
+                    setSelectedSeats([]);
+                    setTableToSeat(null);
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSeatConfirm}
+                  disabled={selectedSeats.length === 0}
+                  className={`flex-1 py-3 px-4 rounded-xl font-medium transition-all duration-200 ${
+                    selectedSeats.length > 0
+                      ? 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                >
+                  Confirm Seats ({selectedSeats.length})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Table Seat Selection Popup */}
+        {showSeatSelectionPopup && selectedTableForSeats && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div 
+              className="absolute inset-0 bg-black/60"
+              onClick={() => {
+                setShowSeatSelectionPopup(false);
+                setSelectedSeatsForTable([]);
+                setSelectedTableForSeats(null);
+              }}
+            />
+            <div className="relative bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full mx-4 shadow-2xl">
+              <div className="text-center mb-6">
+                <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-2">
+                  Select Seats for Table {selectedTableForSeats.id}
+                </h2>
+                <p className="text-sm text-gray-600">
+                  Choose which seats to manage for this table
+                </p>
+              </div>
+
+              {/* Seat Grid */}
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {[1, 2, 3, 4].map((seatNumber) => (
+                  <button
+                    key={seatNumber}
+                    onClick={() => handleSeatSelectionToggle(seatNumber)}
+                    className={`p-4 rounded-xl border-2 transition-all duration-200 font-semibold ${
+                      selectedSeatsForTable.includes(seatNumber)
+                        ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-lg scale-105'
+                        : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700 hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="flex items-center justify-center">
+                      <span className="text-2xl mr-2">🪑</span>
+                      <span>Seat {seatNumber}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Selected Seats Summary */}
+              {selectedSeatsForTable.length > 0 && (
+                <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                  <p className="text-sm font-medium text-blue-800">
+                    Selected Seats: {selectedSeatsForTable.sort((a, b) => a - b).join(', ')}
+                  </p>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowSeatSelectionPopup(false);
+                    setSelectedSeatsForTable([]);
+                    setSelectedTableForSeats(null);
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmSeatSelection}
+                  className="flex-1 py-3 px-4 rounded-xl bg-blue-500 text-white hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium"
+                >
+                  Continue ({selectedSeatsForTable.length > 0 ? selectedSeatsForTable.length : 4} seats)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Seat Page View */}
+        {showSeatPageView && selectedTableForSeats && (
+          <div className="px-3 md:px-4 py-3">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setShowSeatPageView(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-800">{selectedTableForSeats.id}</h2>
+                  <p className="text-sm text-gray-600">Table Seat Management</p>
+                </div>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => {
+                    // Reset all seat data for this table
+                    const tableId = selectedTableForSeats.id;
+                    setTableSeats(prev => {
+                      const updatedSeats = { ...prev };
+                      if (updatedSeats[tableId]) {
+                        // Reset all seats to initial state
+                        [1, 2, 3, 4].forEach(seatNumber => {
+                          updatedSeats[tableId][seatNumber] = {
+                            currentTaskIndex: 0,
+                            currentTask: { ...taskFlow[0] },
+                            minutes: 0,
+                            status: "Pending",
+                            orderMoreNext: false,
+                            serveHistory: []
+                          };
+                        });
+                      }
+                      return updatedSeats;
+                    });
+                    
+                    // Reset table carts for this table
+                    setTableCarts(prev => {
+                      const updatedCarts = { ...prev };
+                      [1, 2, 3, 4].forEach(seatNumber => {
+                        const seatKey = `${tableId}-S${seatNumber}`;
+                        updatedCarts[seatKey] = [];
+                      });
+                      return updatedCarts;
+                    });
+                    
+                    // Reset other states
+                    setQuantities({});
+                    setCartNote('');
+                    setShowMenu(false);
+                    setShowCart(false);
+                    setShowComments(false);
+                    setActiveOrderTab("1");
+                    
+                    // Show seat selection popup for new customers
+                    setSelectedSeatsForTable([]);
+                    setShowSeatSelectionPopup(true);
+                  }}
+                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:scale-95 transition-all duration-200 font-medium shadow-md"
+                >
+                  Clear Table
+                </button>
+                
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-700">Current Task</p>
+                  <p className="text-lg font-bold text-gray-800">{selectedTableForSeats.currentTask.name}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Table Seats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-6">
+              {/* All Seats Card */}
+              <div 
+                onClick={() => {
+                  // Create expanded card for all seats of this table
+                  setExpandedCard({
+                    id: selectedTableForSeats.id,
+                    type: "table",
+                    tableId: selectedTableForSeats.id,
+                    currentTaskIndex: selectedTableForSeats.currentTaskIndex,
+                    currentTask: { ...selectedTableForSeats.currentTask },
+                    minutes: selectedTableForSeats.minutes,
+                    status: selectedTableForSeats.status,
+                    serveHistory: selectedTableForSeats.serveHistory || [],
+                    selectedSeats: selectedSeatsForTable.length > 0 ? selectedSeatsForTable : [1, 2, 3, 4]
+                  });
+                  setShowSeatPageView(false);
+                }}
+                className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gradient-to-br from-indigo-50 to-purple-100 border-indigo-200 hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer shadow-lg"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs text-foreground/60 font-medium">All Seats</div>
+                    <div className="font-mono font-bold text-lg text-gray-800">🪑 All Seats</div>
+                    <div className="text-xs text-indigo-600 font-medium mt-1">
+                      Manage All Seats
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-xs text-foreground/60 font-medium">Table</div>
+                    <div className="text-xs font-semibold px-2 py-1 rounded-full bg-indigo-100 text-indigo-800">
+                      {selectedTableForSeats.id}
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="space-y-2 mt-4">
+                  <div>
+                    <div className="text-xs text-foreground/60 font-medium">Current Task</div>
+                    <div className="font-semibold text-sm text-gray-800">{selectedTableForSeats.currentTask.name}</div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3 h-3 text-gray-500" />
+                    <span className="text-xs text-gray-600">{selectedTableForSeats.minutes} min</span>
+                  </div>
+                </div>
+                
+                <div className="pt-2 border-t border-gray-200 mt-3">
+                  <div className="text-xs text-gray-600">
+                    Click to manage all seats together
+                  </div>
+                </div>
+              </div>
+
+              {/* Show only selected seats */}
+              {(selectedSeatsForTable.length > 0 ? selectedSeatsForTable : [1, 2, 3, 4]).map((seatNumber) => {
+                // Get individual seat data
+                const seatData = tableSeats[selectedTableForSeats.id]?.[seatNumber];
+                
+                if (!seatData) {
+                  return (
+                    <div key={seatNumber} className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gray-100">
+                      <div className="text-center text-gray-500">
+                        <div className="font-mono font-bold text-lg">Seat {seatNumber}</div>
+                        <div className="text-sm">Loading...</div>
+                      </div>
+                    </div>
+                  );
+                }
+                
+                // Enhanced color scheme based on task type
+                const getTaskColors = (taskId) => {
+                  switch (taskId) {
+                    case "1": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                    case "2": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                    case "3": return "bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 hover:shadow-orange-200/50";
+                    case "4": return "bg-gradient-to-br from-red-50 to-red-100 border-red-200 hover:shadow-red-200/50";
+                    case "5": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
+                    case "6": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
+                    default: return "bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-gray-200/50";
+                  }
+                };
+                
+                const backgroundClass = getTaskColors(seatData.currentTask.id);
+                const isSelected = seatData.selectedSeats && seatData.selectedSeats.includes(seatNumber);
+                
+                return (
+                  <div 
+                    key={seatNumber} 
+                    onClick={() => handleSeatPageSeatClick(seatNumber)}
+                    className={`rounded-xl md:rounded-2xl border-2 p-4 md:p-6 space-y-3 md:space-y-4 ${backgroundClass} shadow-lg hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs text-foreground/60 font-medium">Seat ID</div>
+                        <div className="font-mono font-bold text-lg text-gray-800">Seat {seatNumber}</div>
+                        {isSelected && (
+                          <div className="text-xs text-green-600 font-medium mt-1">
+                            ✓ Selected
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-foreground/60 font-medium">Status</div>
+                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                          seatData.status === "Available" ? "bg-green-100 text-green-800" :
+                          seatData.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                          seatData.status === "Pending" ? "bg-yellow-100 text-yellow-800" :
+                          "bg-gray-100 text-gray-800"
+                        }`}>
+                          {seatData.status}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs text-foreground/60 font-medium">Current Task</div>
+                        <div className="font-semibold text-sm text-gray-800">{seatData.currentTask.name}</div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-3 h-3 text-gray-500" />
+                        <span className="text-xs text-gray-600">{seatData.minutes} min</span>
+                      </div>
+                    </div>
+                    
+                    <div className="pt-2 border-t border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-gray-600">Task Status:</span>
+                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${
+                          seatData.currentTask.currentStatus === "Pending" ? "bg-yellow-100 text-yellow-800" :
+                          seatData.currentTask.currentStatus === "Assigned" ? "bg-blue-100 text-blue-800" :
+                          seatData.currentTask.currentStatus === "Completed" ? "bg-green-100 text-green-800" :
+                          seatData.currentTask.currentStatus === "Placed" ? "bg-orange-100 text-orange-800" :
+                          seatData.currentTask.currentStatus === "Served" ? "bg-red-100 text-red-800" :
+                          seatData.currentTask.currentStatus === "Empty" ? "bg-gray-100 text-gray-800" :
+                          seatData.currentTask.currentStatus === "Seated" ? "bg-green-100 text-green-800" :
+                          "bg-green-100 text-green-800"
+                        }`}>
+                          {seatData.currentTask.currentStatus}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Bar Table Section */}
+        {!expandedCard && !showSeatPageView && (
+          <div className="px-3 md:px-4 py-3">
+            <div 
+              onClick={() => setExpandedCard({ 
+                id: "BAR", 
+                type: "bar", 
+                seats: 6, 
+                currentTask: { id: "1", name: "Bar Management" },
+                selectedSeats: [1, 2, 3, 4, 5, 6]
+              })}
+              className="bg-gradient-to-br from-purple-100 to-purple-200 border-2 border-purple-300 rounded-xl md:rounded-2xl p-4 md:p-6 shadow-lg cursor-pointer hover:shadow-xl active:scale-[0.98] transition-all duration-200"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg md:text-xl font-bold text-purple-800">Bar Table</h3>
+                  <p className="text-sm text-purple-700">6 Seats Available</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-medium text-purple-700">Active Seats</p>
+                  <p className="text-lg font-bold text-purple-800">4/6 Occupied</p>
+                </div>
+              </div>
+              
+              {/* Seat Task Grid */}
+              <div className="grid grid-cols-3 gap-3 md:gap-4 mb-4">
+                {[
+                  { id: "S1", task: "Assign", color: "bg-green-100 border-green-300 text-green-800" },
+                  { id: "S2", task: "Pre Meal", color: "bg-blue-100 border-blue-300 text-blue-800" },
+                  { id: "S3", task: "Order", color: "bg-blue-100 border-blue-300 text-blue-800" },
+                  { id: "S4", task: "Serve", color: "bg-blue-100 border-blue-300 text-blue-800" },
+                  { id: "S5", task: "Post Meal", color: "bg-blue-100 border-blue-300 text-blue-800" },
+                  { id: "S6", task: "Payment", color: "bg-yellow-100 border-yellow-300 text-yellow-800" }
+                ].map((seat) => (
+                  <div 
+                    key={seat.id} 
+                    className={`rounded-lg border-2 p-3 text-center ${seat.color} shadow-sm`}
+                  >
+                    <div className="text-sm font-bold">{seat.id}</div>
+                    <div className="text-xs font-medium">{seat.task}</div>
+                  </div>
+                ))}
+              </div>
+              
+              {/* Footer */}
+              <div className="flex items-center justify-center">
+                <div className="flex items-center gap-2 text-purple-700">
+                  <Clock className="h-4 w-4" />
+                  <span className="text-sm font-medium">Avg: 8 mins</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

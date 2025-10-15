@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect, useRef } from "react";
 import { Clock, Menu, ArrowRight, ArrowLeft, Plus, Minus, ShoppingCart, X, MessageSquare, Bell, User, CreditCard, Smartphone, DollarSign, CheckCircle, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, TASK_STATUS_MAPPING } from "../services/taskService";
+import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, updateFullTask, TASK_STATUS_MAPPING, menuService } from "../services/taskService";
 
 export default function AllTables() {
   const navigate = useNavigate();
@@ -44,6 +44,11 @@ export default function AllTables() {
   const [showSeatSelectionPopup, setShowSeatSelectionPopup] = useState(false);
   const [selectedSeatsForTable, setSelectedSeatsForTable] = useState([]);
   
+  // Seat number input state
+  const [showSeatNumberPrompt, setShowSeatNumberPrompt] = useState(false);
+  const [numberOfSeats, setNumberOfSeats] = useState(4); // Default to 4 seats
+  const [tableForSeatNumberPrompt, setTableForSeatNumberPrompt] = useState(null);
+  
   // Order task tab state
   const [activeOrderTab, setActiveOrderTab] = useState("1");
   
@@ -57,6 +62,10 @@ export default function AllTables() {
   const [tableTaskMapping, setTableTaskMapping] = useState({}); // tableId -> taskUuid
   const [seatTaskMapping, setSeatTaskMapping] = useState({}); // `${tableId}-${seatId}` -> taskUuid
   const [subTaskMapping, setSubTaskMapping] = useState({}); // `${tableId}-${seatId}-${taskName}` -> taskUuid
+  
+  // Menu items state
+  const [menuItems, setMenuItems] = useState([]);
+  const [menuLoading, setMenuLoading] = useState(true);
   
   // Initialize individual seat data for each table
   const initializeTableSeats = () => {
@@ -499,9 +508,10 @@ export default function AllTables() {
       }
       setShowSeatPageView(true);
     } else {
-      // If table is completely cleared, show seat selection popup
-      setSelectedSeatsForTable([]); // Reset selected seats
-      setShowSeatSelectionPopup(true);
+      // If table is completely cleared, show seat number prompt first
+      setTableForSeatNumberPrompt(row);
+      setNumberOfSeats(4); // Reset to default
+      setShowSeatNumberPrompt(true);
     }
   };
 
@@ -513,6 +523,120 @@ export default function AllTables() {
         return [...prev, seatNumber];
       }
     });
+  };
+
+  const handleConfirmSeatNumber = async () => {
+    if (!tableForSeatNumberPrompt) return;
+    
+    try {
+      // Create table task if it doesn't exist
+      let tableTaskUuid = tableTaskMapping[tableForSeatNumberPrompt.id];
+      if (!tableTaskUuid) {
+        tableTaskUuid = await createTableTask(tableForSeatNumberPrompt.id);
+        setTableTaskMapping(prev => ({
+          ...prev,
+          [tableForSeatNumberPrompt.id]: tableTaskUuid
+        }));
+      }
+
+      // Create "All Seats" task first (always seat 1)
+      const allSeatsKey = `${tableForSeatNumberPrompt.id}-1`;
+      if (!seatTaskMapping[allSeatsKey]) {
+        const allSeatsTaskUuid = await createSeatTask(tableTaskUuid, 1, 'All Seats');
+        setSeatTaskMapping(prev => ({
+          ...prev,
+          [allSeatsKey]: allSeatsTaskUuid
+        }));
+      }
+
+      // Create individual seat tasks based on numberOfSeats
+      const seatNumbers = [];
+      for (let i = 1; i <= numberOfSeats; i++) {
+        const seatId = i + 1; // Start from 2 since 1 is "All Seats"
+        const seatKey = `${tableForSeatNumberPrompt.id}-${seatId}`;
+        seatNumbers.push(seatId);
+        
+        if (!seatTaskMapping[seatKey]) {
+          const seatName = `Seat ${i}`;
+          const seatTaskUuid = await createSeatTask(tableTaskUuid, seatId, seatName);
+          
+          setSeatTaskMapping(prev => ({
+            ...prev,
+            [seatKey]: seatTaskUuid
+          }));
+        }
+      }
+
+      // Update the table's selectedSeats property - include "All Seats" (1) and individual seats
+      const allSeats = [1, ...seatNumbers].sort((a, b) => a - b);
+      
+      setRows(prev => prev.map(row => 
+        row.id === tableForSeatNumberPrompt.id 
+          ? { ...row, selectedSeats: allSeats, numberOfSeats: numberOfSeats }
+          : row
+      ));
+      
+      // Initialize seat data for this table
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        updatedSeats[tableForSeatNumberPrompt.id] = {};
+        
+        // Initialize All Seats
+        updatedSeats[tableForSeatNumberPrompt.id][1] = {
+          id: 1,
+          tableId: tableForSeatNumberPrompt.id,
+          currentTaskIndex: 0,
+          currentTask: { 
+            id: "1", 
+            name: "Assign Table", 
+            statusOptions: ["Empty", "Seated"],
+            currentStatus: "Empty"
+          },
+          minutes: 0,
+          status: "Available",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [1]
+        };
+        
+        // Initialize individual seats
+        for (let i = 1; i <= numberOfSeats; i++) {
+          const seatId = i + 1;
+          updatedSeats[tableForSeatNumberPrompt.id][seatId] = {
+            id: seatId,
+            tableId: tableForSeatNumberPrompt.id,
+            currentTaskIndex: 0,
+            currentTask: { 
+              id: "1", 
+              name: "Assign Table", 
+              statusOptions: ["Empty", "Seated"],
+              currentStatus: "Empty"
+            },
+            minutes: 0,
+            status: "Available",
+            orderMoreNext: false,
+            serveHistory: [],
+            selectedSeats: [seatId]
+          };
+        }
+        
+        return updatedSeats;
+      });
+      
+      // Update the local state
+      setSelectedSeatsForTable(allSeats);
+      setSelectedTableForSeats(tableForSeatNumberPrompt);
+      
+      // Close prompt and show seats page
+      setShowSeatNumberPrompt(false);
+      setTableForSeatNumberPrompt(null);
+      setShowSeatPageView(true);
+      
+    } catch (error) {
+      console.error('Error creating tasks:', error);
+      // Still proceed with UI updates even if API fails
+      alert('Error creating tasks. Please try again.');
+    }
   };
 
   const handleConfirmSeatSelection = async () => {
@@ -545,7 +669,7 @@ export default function AllTables() {
       for (const seatId of mergedSeats) {
         const seatKey = `${selectedTableForSeats.id}-${seatId}`;
         if (!seatTaskMapping[seatKey]) {
-          const seatName = seatId === 1 ? 'All Seats' : `Seat ${seatId}`;
+          const seatName = seatId === 1 ? 'All Seats' : `Seat ${seatId - 1}`;
           const seatTaskUuid = await createSeatTask(tableTaskUuid, seatId, seatName);
           
           setSeatTaskMapping(prev => ({
@@ -584,7 +708,7 @@ export default function AllTables() {
     }
   };
 
-  const handleSeatPageSeatClick = (seatNumber) => {
+  const handleSeatPageSeatClick = async (seatNumber) => {
     // Get the individual seat data for this specific seat
     const seatData = tableSeats[selectedTableForSeats.id]?.[seatNumber];
     
@@ -593,24 +717,73 @@ export default function AllTables() {
       return;
     }
     
-    // Create a seat object that maintains the table ID for the task flow
-    const seatObject = {
-      id: `${selectedTableForSeats.id}-S${seatNumber}`, // Unique ID for this specific seat
-      seatNumber: seatNumber,
-      tableId: selectedTableForSeats.id,
-      currentTaskIndex: seatData.currentTaskIndex,
-      currentTask: { ...seatData.currentTask },
-      minutes: seatData.minutes,
-      status: seatData.status,
-      orderMoreNext: seatData.orderMoreNext,
-      serveHistory: [...seatData.serveHistory],
-      selectedSeats: [seatNumber]
-    };
+    const tableId = selectedTableForSeats.id;
+    const seatKey = `${tableId}-${seatNumber}`;
+    const seatTaskUuid = seatTaskMapping[seatKey];
     
-    // Close seat page view and open task flow
-    setShowSeatPageView(false);
-    setExpandedCard(seatObject);
-    setActiveOrderTab(seatNumber.toString()); // Set the active order tab to this seat
+    if (!seatTaskUuid) {
+      console.error('Seat task UUID not found for', seatKey);
+      return;
+    }
+    
+    try {
+      // Automatically create Order task when seat is clicked (if not already exists)
+      const orderTaskKey = `${tableId}-${seatNumber}-Order`;
+      let orderTaskUuid = subTaskMapping[orderTaskKey];
+      
+      if (!orderTaskUuid) {
+        console.log('Creating Order task for seat', seatNumber);
+        orderTaskUuid = await createSubTask(
+          seatTaskUuid,
+          `Order - Seat ${seatNumber - 1}`,
+          `Order task for Seat ${seatNumber - 1}`,
+          'ORDER',
+          {
+            seatNumber: seatNumber,
+            tableId: tableId,
+            taskType: 'ORDER'
+          }
+        );
+        
+        // Save the order task UUID
+        setSubTaskMapping(prev => ({
+          ...prev,
+          [orderTaskKey]: orderTaskUuid
+        }));
+        
+        console.log('Order task created:', orderTaskUuid);
+      }
+      
+      // Create a seat object that maintains the table ID for the task flow
+      const seatObject = {
+        id: `${tableId}-S${seatNumber}`,
+        seatNumber: seatNumber,
+        tableId: tableId,
+        currentTask: {
+          id: "order",
+          name: "Order",
+          type: "ORDER"
+        },
+        currentTaskUuid: orderTaskUuid,
+        seatTaskUuid: seatTaskUuid,
+        minutes: seatData.minutes,
+        status: seatData.status,
+        orderMoreNext: seatData.orderMoreNext,
+        serveHistory: [...seatData.serveHistory],
+        selectedSeats: [seatNumber]
+      };
+      
+      // Close seat page view and open task flow
+      setShowSeatPageView(false);
+      setExpandedCard(seatObject);
+      setActiveOrderTab(seatNumber.toString());
+      
+      // Show menu for ordering
+      setShowMenu(true);
+      
+    } catch (error) {
+      console.error('Error creating Order task:', error);
+    }
   };
 
   const handleBarSeatClick = (seat) => {
@@ -633,41 +806,81 @@ export default function AllTables() {
     });
   };
 
-  const menuCategories = [
-    {
-      title: "Starters",
-      items: [
-        { id: "s1", name: "Bruschetta", description: "Toasted bread with tomatoes, garlic, and olive oil", price: "$8.50" },
-        { id: "s2", name: "Calamari", description: "Crispy fried squid with marinara sauce", price: "$12.00" },
-        { id: "s3", name: "Caprese Salad", description: "Fresh mozzarella, tomatoes, and basil", price: "$10.50" },
-      ]
-    },
-    {
-      title: "Breads",
-      items: [
-        { id: "b1", name: "Garlic Bread", description: "Toasted baguette with garlic butter and herbs", price: "$6.00" },
-        { id: "b2", name: "Focaccia", description: "Italian flatbread with rosemary and sea salt", price: "$7.50" },
-        { id: "b3", name: "Bread Basket", description: "Assorted artisan breads with olive oil", price: "$8.00" },
-      ]
-    },
-    {
-      title: "Main Courses",
-      items: [
-        { id: "m1", name: "Grilled Salmon", description: "Atlantic salmon with seasonal vegetables", price: "$24.00" },
-        { id: "m2", name: "Chicken Tenderloin", description: "8oz tenderloin with mashed potatoes", price: "$28.50" },
-        { id: "m3", name: "Chicken Marsala", description: "Pan-seared chicken in marsala wine sauce", price: "$22.00" },
-        { id: "m4", name: "Pasta Carbonara", description: "Spaghetti with eggs, cheese, and pancetta", price: "$18.50" },
-      ]
-    },
-    {
-      title: "Desserts",
-      items: [
-        { id: "d1", name: "Tiramisu", description: "Classic Italian dessert with coffee and mascarpone", price: "$9.00" },
-        { id: "d2", name: "Chocolate Lava Cake", description: "Warm chocolate cake with vanilla ice cream", price: "$10.50" },
-        { id: "d3", name: "Crème Brûlée", description: "Vanilla custard with caramelized sugar", price: "$8.50" },
-      ]
-    }
-  ];
+  // Fetch menu items on component mount
+  useEffect(() => {
+    const fetchMenuItems = async () => {
+      try {
+        setMenuLoading(true);
+        const items = await menuService.getMenuItems();
+        // Filter only available items
+        const availableItems = items.filter(item => item.isAvailable);
+        setMenuItems(availableItems);
+      } catch (err) {
+        console.error('Failed to fetch menu items:', err);
+        // Continue with empty menu on error
+        setMenuItems([]);
+      } finally {
+        setMenuLoading(false);
+      }
+    };
+
+    fetchMenuItems();
+  }, []);
+
+  // Categorize menu items dynamically based on price ranges and keywords
+  const categorizeMenuItems = () => {
+    const categories = {
+      beverages: { title: "Beverages", items: [] },
+      appetizers: { title: "Appetizers & Sides", items: [] },
+      mains: { title: "Main Courses", items: [] },
+      desserts: { title: "Desserts", items: [] }
+    };
+
+    menuItems.forEach(item => {
+      const itemName = item.name.toLowerCase();
+      const itemDescription = item.description.toLowerCase();
+      
+      // Categorize based on keywords
+      if (itemName.includes('coffee') || itemName.includes('latte') || 
+          itemName.includes('espresso') || itemName.includes('brew') ||
+          itemName.includes('cappuccino') || itemName.includes('americano') ||
+          itemName.includes('tea') || itemName.includes('smoothie') ||
+          itemName.includes('chocolate') && item.basePrice < 6) {
+        categories.beverages.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else if (itemName.includes('bread') || itemName.includes('fries') ||
+                 itemName.includes('salad') || item.basePrice < 8) {
+        categories.appetizers.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else if (itemName.includes('tiramisu') || itemName.includes('brownie') ||
+                 itemName.includes('ice cream') || itemName.includes('sundae') ||
+                 itemDescription.includes('dessert')) {
+        categories.desserts.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else {
+        // Everything else goes to main courses
+        categories.mains.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      }
+    });
+
+    // Filter out empty categories
+    return Object.values(categories).filter(cat => cat.items.length > 0);
+  };
+
+  const menuCategories = categorizeMenuItems();
 
   // NEW CLEAN CART SYSTEM
   const newUpdateCartItem = (itemId, change, seatId = activeOrderTab) => {
@@ -796,17 +1009,24 @@ export default function AllTables() {
     
     if (currentCart.length === 0) return;
     
-    // Create order items with kitchen status
-    const orderItems = currentCart.map(item => ({
-      id: item.id,
-      name: item.name,
-      quantity: item.quantity,
-      price: item.price,
-      seatId: item.seatId,
-      kitchenStatus: "Preparing"
-    }));
+    // Create order items with kitchen status (for UI)
+    const orderItems = currentCart.map(item => {
+      // Parse price from string format "$X.XX" to number for description
+      const basePrice = typeof item.price === 'string' 
+        ? parseFloat(item.price.replace('$', '')) 
+        : item.basePrice || item.price || 0;
+      
+      return {
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        price: basePrice,
+        seatId: item.seatId,
+        kitchenStatus: "Preparing"
+      };
+    });
     
-    // Create order description for task
+    // Create order description for task (with proper price calculation)
     const orderDescription = orderItems.map(item => 
       `${item.quantity}x ${item.name} - $${(item.price * item.quantity).toFixed(2)}`
     ).join(', ');
@@ -823,27 +1043,81 @@ export default function AllTables() {
       note: cartNote || null
     };
 
-    // Update task description with order details
+    // Get current timestamp for order
+    const orderTimestamp = new Date().toISOString();
+    
+    // Format order items for API (extensionsData.orderItems)
+    const apiOrderItems = currentCart.map(item => {
+      // Parse price from string format "$X.XX" to number
+      const basePrice = typeof item.price === 'string' 
+        ? parseFloat(item.price.replace('$', '')) 
+        : item.basePrice || item.price || 0;
+      
+      return {
+        id: parseInt(item.id) || item.id,
+        name: item.name,
+        description: item.description || '',
+        basePrice: basePrice,
+        isAvailable: true,
+        quantity: item.quantity,
+        status: "ORDERED",
+        price: parseFloat((basePrice * item.quantity).toFixed(2)),
+        orderNote: cartNote || "",
+        orderTimestamp: orderTimestamp,
+        orderStatus: "ORDERED"
+      };
+    });
+
+    // Update Order task with order items in extensionsData
     try {
-      if (expandedCard.seatNumber && expandedCard.tableId) {
-        // Table seat order - update task description
-        const seatKey = `${tableId}-${seatId}`;
-        const seatTaskUuid = seatTaskMapping[seatKey];
-        
-        if (seatTaskUuid) {
-          await updateTaskDescription(seatTaskUuid, fullOrderDescription);
-        }
+      let taskUuidToUpdate = null;
+      
+      if (expandedCard.seatNumber && expandedCard.tableId && expandedCard.currentTaskUuid) {
+        // Table seat - use the current task UUID
+        taskUuidToUpdate = expandedCard.currentTaskUuid;
+        console.log('Updating table seat Order task:', taskUuidToUpdate);
+      } else if (expandedCard.seat && expandedCard.currentTaskUuid) {
+        // Bar seat - use the current task UUID
+        taskUuidToUpdate = expandedCard.currentTaskUuid;
+        console.log('Updating bar seat Order task:', taskUuidToUpdate);
       } else if (!expandedCard.seat) {
-        // Regular table order - update All Seats task description
+        // Regular table order - update All Seats task
         const allSeatsKey = `${tableId}-1`;
-        const allSeatsTaskUuid = seatTaskMapping[allSeatsKey];
-        
-        if (allSeatsTaskUuid) {
-          await updateTaskDescription(allSeatsTaskUuid, fullOrderDescription);
+        taskUuidToUpdate = seatTaskMapping[allSeatsKey];
+        console.log('Updating regular table Order task:', taskUuidToUpdate);
+      }
+      
+      if (taskUuidToUpdate) {
+        // Get current task title or create a default one
+        let taskTitle = "Order Task";
+        if (expandedCard.seatNumber && expandedCard.tableId) {
+          taskTitle = `Table ${expandedCard.tableId} Seat ${expandedCard.seatNumber}`;
+        } else if (expandedCard.seat) {
+          taskTitle = `Bar Seat ${expandedCard.seat.id}`;
+        } else if (expandedCard.id) {
+          taskTitle = `Table ${expandedCard.id}`;
         }
+        
+        // Update task with order items in extensionsData (matching Postman format exactly)
+        const updateData = {
+          title: taskTitle,
+          description: fullOrderDescription,
+          status: "IN_PROGRESS",
+          dueAt: "2025-12-31T15:00:00",
+          extensionsData: {
+            priority: "HIGH",
+            orderItems: apiOrderItems  // Now includes orderNote, orderTimestamp, orderStatus in each item
+          }
+        };
+        
+        console.log('Updating task with order items:', JSON.stringify(updateData, null, 2));
+        await updateFullTask(taskUuidToUpdate, updateData);
+        console.log('Order task updated successfully with cart items');
+      } else {
+        console.warn('No task UUID found to update with order items');
       }
     } catch (error) {
-      console.error('Error updating task description:', error);
+      console.error('Error updating Order task with cart items:', error);
     }
     
     // Handle different seat types
@@ -1291,7 +1565,133 @@ export default function AllTables() {
   const handleNextTask = async () => {
     if (!expandedCard) return;
     
-    // If this is a seat-specific task, update the individual seat data
+    // If this is a seat-specific task with the new Order -> Serve flow
+    if (expandedCard.seatNumber && expandedCard.currentTaskUuid) {
+      const tableId = expandedCard.tableId;
+      const seatNumber = expandedCard.seatNumber;
+      const seatKey = `${tableId}-${seatNumber}`;
+      const seatTaskUuid = seatTaskMapping[seatKey];
+      
+      if (!seatTaskUuid) {
+        console.error('Seat task UUID not found for', seatKey);
+        return;
+      }
+      
+      try {
+        // Check what task we're currently on
+        const currentTaskType = expandedCard.currentTask.type || expandedCard.currentTask.id;
+        
+        if (currentTaskType === 'ORDER' || currentTaskType === 'order') {
+          // We're on Order task, create Serve task
+          console.log('Creating Serve task after Order');
+          
+          // First, get the Order task to fetch its description
+          let orderDescription = '';
+          try {
+            const orderTaskResponse = await taskService.getTaskById(expandedCard.currentTaskUuid);
+            orderDescription = orderTaskResponse?.taskDTO?.description || '';
+            console.log('Fetched order description:', orderDescription);
+          } catch (error) {
+            console.error('Error fetching order task:', error);
+          }
+          
+          // Create Serve task
+          const serveTaskKey = `${tableId}-${seatNumber}-Serve`;
+          let serveTaskUuid = subTaskMapping[serveTaskKey];
+          
+          if (!serveTaskUuid) {
+            // Include order description in the Serve task description
+            const serveDescription = orderDescription 
+              ? `Serve: ${orderDescription}` 
+              : `Serve items for Seat ${seatNumber - 1}`;
+            
+            serveTaskUuid = await createSubTask(
+              seatTaskUuid,
+              `Serve - Seat ${seatNumber - 1}`,
+              serveDescription,
+              'SERVE',
+              {
+                seatNumber: seatNumber,
+                tableId: tableId,
+                taskType: 'SERVE',
+                orderDetails: orderDescription
+              }
+            );
+            
+            setSubTaskMapping(prev => ({
+              ...prev,
+              [serveTaskKey]: serveTaskUuid
+            }));
+            
+            console.log('Serve task created:', serveTaskUuid);
+          }
+          
+          // Update expanded card to show Serve task
+          setExpandedCard(prev => ({
+            ...prev,
+            currentTask: {
+              id: "serve",
+              name: "Serve",
+              type: "SERVE"
+            },
+            currentTaskUuid: serveTaskUuid,
+            orderDescription: orderDescription
+          }));
+          
+          // Hide menu, show serve interface
+          setShowMenu(false);
+          
+        } else if (currentTaskType === 'SERVE' || currentTaskType === 'serve') {
+          // We're on Serve task, could create Payment or complete
+          console.log('Serve task completed, creating Payment task');
+          
+          const paymentTaskKey = `${tableId}-${seatNumber}-Payment`;
+          let paymentTaskUuid = subTaskMapping[paymentTaskKey];
+          
+          if (!paymentTaskUuid) {
+            paymentTaskUuid = await createSubTask(
+              seatTaskUuid,
+              `Payment - Seat ${seatNumber - 1}`,
+              `Payment for Seat ${seatNumber - 1}`,
+              'PAYMENT',
+              {
+                seatNumber: seatNumber,
+                tableId: tableId,
+                taskType: 'PAYMENT'
+              }
+            );
+            
+            setSubTaskMapping(prev => ({
+              ...prev,
+              [paymentTaskKey]: paymentTaskUuid
+            }));
+          }
+          
+          // Update expanded card to show Payment task
+          setExpandedCard(prev => ({
+            ...prev,
+            currentTask: {
+              id: "payment",
+              name: "Payment",
+              type: "PAYMENT"
+            },
+            currentTaskUuid: paymentTaskUuid
+          }));
+          
+        } else {
+          // Default fallback - close or return to seats
+          setShowSeatPageView(true);
+          setExpandedCard(null);
+        }
+        
+      } catch (error) {
+        console.error('Error in handleNextTask:', error);
+      }
+      
+      return;
+    }
+    
+    // Old flow for seats without currentTaskUuid (backward compatibility)
     if (expandedCard.seatNumber) {
       const tableId = expandedCard.tableId;
       const seatNumber = expandedCard.seatNumber;
@@ -1304,10 +1704,9 @@ export default function AllTables() {
       }
       
       try {
-        // Update current task status before creating next task
         const currentStatus = expandedCard.currentTask.currentStatus;
-        const backendStatus = TASK_STATUS_MAPPING[currentStatus] || 'ACTIVE';
-        await updateTaskStatus(seatTaskUuid, backendStatus);
+        const backendStatus = TASK_STATUS_MAPPING[currentStatus] || 'IN_PROGRESS';
+        await updateTaskStatusAPI(seatTaskUuid, backendStatus);
         
         setTableSeats(prev => {
           const updatedSeats = { ...prev };
@@ -1315,28 +1714,39 @@ export default function AllTables() {
           
           if (!seatData) return prev;
           
-          // Update the seat's task flow
           if (canProceedToNextTask()) {
             const nextTaskIndex = seatData.currentTaskIndex + 1;
             const nextTask = taskFlow[nextTaskIndex];
             
-            // Create sub-task for the next task
             const subTaskKey = `${tableId}-${seatNumber}-${nextTask.name}`;
-            createSubTask(seatTaskUuid, nextTask.name, `Task: ${nextTask.name}`, nextTask.name.replace(' ', '_').toUpperCase())
-              .then(subTaskUuid => {
-                setSubTaskMapping(prev => ({
-                  ...prev,
-                  [subTaskKey]: subTaskUuid
-                }));
-              })
-              .catch(error => console.error('Error creating sub-task:', error));
+            
+            if (!subTaskMapping[subTaskKey]) {
+              createSubTask(
+                seatTaskUuid, 
+                nextTask.name, 
+                `Task: ${nextTask.name} for Seat ${seatNumber}`, 
+                nextTask.name.replace(/ /g, '_').toUpperCase(),
+                {
+                  seatNumber: seatNumber,
+                  tableId: tableId,
+                  taskFlowIndex: nextTaskIndex
+                }
+              )
+                .then(subTaskUuid => {
+                  setSubTaskMapping(prev => ({
+                    ...prev,
+                    [subTaskKey]: subTaskUuid
+                  }));
+                })
+                .catch(error => console.error('Error creating sub-task:', error));
+            }
             
             updatedSeats[tableId][seatNumber] = {
               ...seatData,
               currentTaskIndex: nextTaskIndex,
               currentTask: {
                 ...nextTask,
-                currentStatus: "Pending"
+                currentStatus: nextTask.statusOptions[0] || "Pending"
               }
             };
           }
@@ -1344,7 +1754,6 @@ export default function AllTables() {
           return updatedSeats;
         });
         
-        // Update the expanded card with new task info
         setExpandedCard(prev => {
           if (canProceedToNextTask()) {
             const nextTaskIndex = prev.currentTaskIndex + 1;
@@ -1364,7 +1773,6 @@ export default function AllTables() {
         
       } catch (error) {
         console.error('Error updating task status:', error);
-        // Still proceed with UI updates even if API fails
       }
       
       return;
@@ -1379,9 +1787,9 @@ export default function AllTables() {
       try {
         // Update current task status before creating next task
         const currentStatus = expandedCard.currentTask.currentStatus;
-        const backendStatus = TASK_STATUS_MAPPING[currentStatus] || 'ACTIVE';
+        const backendStatus = TASK_STATUS_MAPPING[currentStatus] || 'IN_PROGRESS';
         if (allSeatsTaskUuid) {
-          await updateTaskStatus(allSeatsTaskUuid, backendStatus);
+          await updateTaskStatusAPI(allSeatsTaskUuid, backendStatus);
         }
         
         // Update the rows state
@@ -1391,17 +1799,31 @@ export default function AllTables() {
           const nextTaskIndex = updatedRows[currentIndex].currentTaskIndex + 1;
           const nextTask = taskFlow[nextTaskIndex];
           
-          // Create sub-task for the next task
+          // Create sub-task for the next task with proper parent linkage
           if (allSeatsTaskUuid) {
             const subTaskKey = `${tableId}-1-${nextTask.name}`;
-            createSubTask(allSeatsTaskUuid, nextTask.name, `Task: ${nextTask.name}`, nextTask.name.replace(' ', '_').toUpperCase())
-              .then(subTaskUuid => {
-                setSubTaskMapping(prev => ({
-                  ...prev,
-                  [subTaskKey]: subTaskUuid
-                }));
-              })
-              .catch(error => console.error('Error creating sub-task:', error));
+            
+            // Check if this sub-task already exists
+            if (!subTaskMapping[subTaskKey]) {
+              createSubTask(
+                allSeatsTaskUuid, 
+                nextTask.name, 
+                `Task: ${nextTask.name} for All Seats`, 
+                nextTask.name.replace(/ /g, '_').toUpperCase(),
+                {
+                  seatType: 'ALL_SEATS',
+                  tableId: tableId,
+                  taskFlowIndex: nextTaskIndex
+                }
+              )
+                .then(subTaskUuid => {
+                  setSubTaskMapping(prev => ({
+                    ...prev,
+                    [subTaskKey]: subTaskUuid
+                  }));
+                })
+                .catch(error => console.error('Error creating sub-task:', error));
+            }
           }
           
           updatedRows[currentIndex] = {
@@ -1409,7 +1831,7 @@ export default function AllTables() {
             currentTaskIndex: nextTaskIndex,
             currentTask: {
               ...nextTask,
-              currentStatus: "Pending"
+              currentStatus: nextTask.statusOptions[0] || "Pending"
             }
           };
           
@@ -1421,7 +1843,7 @@ export default function AllTables() {
             currentTaskIndex: nextTaskIndex,
             currentTask: {
               ...nextTask,
-              currentStatus: "Pending"
+              currentStatus: nextTask.statusOptions[0] || "Pending"
             }
           }));
         }
@@ -2515,7 +2937,42 @@ export default function AllTables() {
               {!showMenu && (
                 <div className="flex-1 p-8 md:p-6 overflow-y-auto">
                   <div className="space-y-4">
-                    {expandedCard.currentTask.id === "4" ? (
+                    {/* Show Order Description for Serve Task */}
+                    {(expandedCard.currentTask.type === 'SERVE' || expandedCard.currentTask.type === 'serve') && expandedCard.orderDescription ? (
+                      <div className="space-y-4">
+                        {/* Serve Task Header */}
+                        <div className="text-center mb-4">
+                          <h3 className="text-2xl font-bold text-green-800 bg-green-100 px-6 py-3 rounded-lg">
+                            Serve - Seat {expandedCard.seatNumber - 1}
+                          </h3>
+                        </div>
+                        
+                        {/* Order Details */}
+                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 p-6 shadow-lg">
+                          <h4 className="text-lg font-semibold text-green-800 mb-3">Order Details:</h4>
+                          <div className="bg-white rounded-lg p-4 text-gray-800">
+                            <p className="whitespace-pre-wrap text-base">{expandedCard.orderDescription}</p>
+                          </div>
+                        </div>
+                        
+                        {/* Serve Instructions */}
+                        <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                          <p className="text-sm text-blue-800 font-medium">
+                            📋 Please serve the items listed above to Seat {expandedCard.seatNumber - 1}
+                          </p>
+                        </div>
+                        
+                        {/* Next Task Button */}
+                        <div className="pt-4">
+                          <button
+                            onClick={handleNextTask}
+                            className="w-full bg-green-600 text-white py-4 px-6 rounded-xl font-bold text-lg hover:bg-green-700 active:scale-95 transition shadow-lg"
+                          >
+                            Mark as Served & Continue to Payment
+                          </button>
+                        </div>
+                      </div>
+                    ) : expandedCard.currentTask.id === "4" ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                         <div className="text-center mb-4">
@@ -3842,6 +4299,84 @@ export default function AllTables() {
         </div>
         )}
 
+        {/* Seat Number Prompt Modal */}
+        {showSeatNumberPrompt && tableForSeatNumberPrompt && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div 
+              className="absolute inset-0 bg-black/60"
+              onClick={() => {
+                setShowSeatNumberPrompt(false);
+                setTableForSeatNumberPrompt(null);
+              }}
+            />
+            <div className="relative bg-white rounded-3xl shadow-2xl p-8 w-[90%] max-w-md z-10">
+              <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
+                How Many Seats?
+              </h2>
+              
+              <div className="mb-6">
+                <p className="text-center text-gray-600 mb-4">
+                  Table {tableForSeatNumberPrompt.id}
+                </p>
+                
+                {/* Number Input */}
+                <div className="flex items-center justify-center gap-4">
+                  <button
+                    onClick={() => setNumberOfSeats(Math.max(1, numberOfSeats - 1))}
+                    className="w-12 h-12 rounded-xl bg-gray-200 hover:bg-gray-300 active:scale-95 transition-all duration-200 flex items-center justify-center font-bold text-xl"
+                  >
+                    <Minus className="h-5 w-5" />
+                  </button>
+                  
+                  <div className="w-32 h-16 rounded-xl border-2 border-blue-500 bg-blue-50 flex items-center justify-center">
+                    <input
+                      type="number"
+                      min="1"
+                      max="20"
+                      value={numberOfSeats}
+                      onChange={(e) => {
+                        const value = parseInt(e.target.value) || 1;
+                        setNumberOfSeats(Math.max(1, Math.min(20, value)));
+                      }}
+                      className="w-full h-full text-4xl font-bold text-center bg-transparent outline-none"
+                    />
+                  </div>
+                  
+                  <button
+                    onClick={() => setNumberOfSeats(Math.min(20, numberOfSeats + 1))}
+                    className="w-12 h-12 rounded-xl bg-gray-200 hover:bg-gray-300 active:scale-95 transition-all duration-200 flex items-center justify-center font-bold text-xl"
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                </div>
+                
+                <p className="text-center text-sm text-gray-500 mt-3">
+                  Number of seats (1-20)
+                </p>
+              </div>
+              
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowSeatNumberPrompt(false);
+                    setTableForSeatNumberPrompt(null);
+                  }}
+                  className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmSeatNumber}
+                  className="flex-1 py-3 px-4 rounded-xl bg-blue-500 text-white hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium shadow-lg"
+                >
+                  Create {numberOfSeats} Seat{numberOfSeats !== 1 ? 's' : ''}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Seat Selection Modal */}
         {showSeatSelection && (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -4042,9 +4577,10 @@ export default function AllTables() {
                       setTableSeats(prev => {
                         const updatedSeats = { ...prev };
                         if (updatedSeats[tableId]) {
-                          // Reset all seats to initial state
-                          [1, 2, 3, 4].forEach(seatNumber => {
-                            updatedSeats[tableId][seatNumber] = {
+                          // Reset all seats to initial state (dynamically based on actual seats)
+                          Object.keys(updatedSeats[tableId]).forEach(seatId => {
+                            updatedSeats[tableId][seatId] = {
+                              ...updatedSeats[tableId][seatId],
                               currentTaskIndex: 0,
                               currentTask: { ...taskFlow[0] },
                               minutes: 0,
@@ -4057,13 +4593,16 @@ export default function AllTables() {
                         return updatedSeats;
                       });
                       
-                      // Reset table carts for this table
+                      // Reset table carts for this table (dynamically based on actual seats)
                       setTableCarts(prev => {
                         const updatedCarts = { ...prev };
-                        [1, 2, 3, 4].forEach(seatNumber => {
-                          const seatKey = `${tableId}-S${seatNumber}`;
-                          updatedCarts[seatKey] = [];
-                        });
+                        const currentSeats = tableSeats[tableId];
+                        if (currentSeats) {
+                          Object.keys(currentSeats).forEach(seatId => {
+                            const seatKey = `${tableId}-S${seatId}`;
+                            updatedCarts[seatKey] = [];
+                          });
+                        }
                         return updatedCarts;
                       });
                       
@@ -4177,16 +4716,19 @@ export default function AllTables() {
                 </div>
               </div>
 
-              {/* Show only selected seats */}
-              {(selectedSeatsForTable.length > 0 ? selectedSeatsForTable : [1, 2, 3, 4]).map((seatNumber) => {
+              {/* Show only selected seats (excluding "All Seats" which is seat 1) */}
+              {(selectedSeatsForTable.length > 0 ? selectedSeatsForTable.filter(s => s > 1) : [2, 3, 4, 5]).map((seatId) => {
                 // Get individual seat data
-                const seatData = tableSeats[selectedTableForSeats.id]?.[seatNumber];
+                const seatData = tableSeats[selectedTableForSeats.id]?.[seatId];
+                
+                // Display seat number (subtract 1 since seat 1 is "All Seats")
+                const displaySeatNumber = seatId - 1;
                 
                 if (!seatData) {
                   return (
-                    <div key={seatNumber} className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gray-100">
+                    <div key={seatId} className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gray-100">
                       <div className="text-center text-gray-500">
-                        <div className="font-mono font-bold text-lg">Seat {seatNumber}</div>
+                        <div className="font-mono font-bold text-lg">Seat {displaySeatNumber}</div>
                         <div className="text-sm">Loading...</div>
                       </div>
                     </div>
@@ -4196,18 +4738,18 @@ export default function AllTables() {
                 // Enhanced color scheme based on task type
                 
                 const backgroundClass = getTableBackgroundClass(seatData.currentTask.id);
-                const isSelected = seatData.selectedSeats && seatData.selectedSeats.includes(seatNumber);
+                const isSelected = seatData.selectedSeats && seatData.selectedSeats.includes(seatId);
                 
                 return (
                   <div 
-                    key={seatNumber} 
-                    onClick={() => handleSeatPageSeatClick(seatNumber)}
+                    key={seatId} 
+                    onClick={() => handleSeatPageSeatClick(seatId)}
                     className={`rounded-xl md:rounded-2xl border-2 p-4 md:p-6 space-y-3 md:space-y-4 ${backgroundClass} shadow-lg hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer`}
                   >
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-xs text-foreground/60 font-medium">Seat ID</div>
-                        <div className="font-mono font-bold text-lg text-gray-800">Seat {seatNumber}</div>
+                        <div className="font-mono font-bold text-lg text-gray-800">Seat {displaySeatNumber}</div>
                         {isSelected && (
                           <div className="text-xs text-green-600 font-medium mt-1">
                             ✓ Selected

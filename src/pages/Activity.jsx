@@ -1,47 +1,91 @@
 import { useState, useEffect } from "react";
 import { Plus, Minus, ShoppingCart, ChevronDown } from "lucide-react";
+import { menuService } from "../services/taskService";
 
 export default function Activity() {
   const [quantities, setQuantities] = useState({});
   const [showCart, setShowCart] = useState(false);
   const [selectedTable, setSelectedTable] = useState("1");
   const [showTableDropdown, setShowTableDropdown] = useState(false);
+  const [menuItems, setMenuItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const menuCategories = [
-    {
-      title: "Starters",
-      items: [
-        { id: "s1", name: "Bruschetta", description: "Toasted bread with tomatoes, garlic, and olive oil", price: "$8.50" },
-        { id: "s2", name: "Calamari", description: "Crispy fried squid with marinara sauce", price: "$12.00" },
-        { id: "s3", name: "Caprese Salad", description: "Fresh mozzarella, tomatoes, and basil", price: "$10.50" },
-      ]
-    },
-    {
-      title: "Breads",
-      items: [
-        { id: "b1", name: "Garlic Bread", description: "Toasted baguette with garlic butter and herbs", price: "$6.00" },
-        { id: "b2", name: "Focaccia", description: "Italian flatbread with rosemary and sea salt", price: "$7.50" },
-        { id: "b3", name: "Bread Basket", description: "Assorted artisan breads with olive oil", price: "$8.00" },
-      ]
-    },
-    {
-      title: "Main Courses",
-      items: [
-        { id: "m1", name: "Grilled Salmon", description: "Atlantic salmon with seasonal vegetables", price: "$24.00" },
-        { id: "m2", name: "Beef Tenderloin", description: "8oz tenderloin with mashed potatoes", price: "$28.50" },
-        { id: "m3", name: "Chicken Marsala", description: "Pan-seared chicken in marsala wine sauce", price: "$22.00" },
-        { id: "m4", name: "Pasta Carbonara", description: "Spaghetti with eggs, cheese, and pancetta", price: "$18.50" },
-      ]
-    },
-    {
-      title: "Desserts",
-      items: [
-        { id: "d1", name: "Tiramisu", description: "Classic Italian dessert with coffee and mascarpone", price: "$9.00" },
-        { id: "d2", name: "Chocolate Lava Cake", description: "Warm chocolate cake with vanilla ice cream", price: "$10.50" },
-        { id: "d3", name: "Crème Brûlée", description: "Vanilla custard with caramelized sugar", price: "$8.50" },
-      ]
-    }
-  ];
+  // Fetch menu items on component mount
+  useEffect(() => {
+    const fetchMenuItems = async () => {
+      try {
+        setLoading(true);
+        const items = await menuService.getMenuItems();
+        // Filter only available items
+        const availableItems = items.filter(item => item.isAvailable);
+        setMenuItems(availableItems);
+        setError(null);
+      } catch (err) {
+        console.error('Failed to fetch menu items:', err);
+        setError('Failed to load menu items. Please try again later.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMenuItems();
+  }, []);
+
+  // Categorize menu items dynamically based on price ranges and keywords
+  const categorizeMenuItems = () => {
+    const categories = {
+      beverages: { title: "Beverages", items: [] },
+      appetizers: { title: "Appetizers & Sides", items: [] },
+      mains: { title: "Main Courses", items: [] },
+      desserts: { title: "Desserts", items: [] }
+    };
+
+    menuItems.forEach(item => {
+      const itemName = item.name.toLowerCase();
+      const itemDescription = item.description.toLowerCase();
+      
+      // Categorize based on keywords
+      if (itemName.includes('coffee') || itemName.includes('latte') || 
+          itemName.includes('espresso') || itemName.includes('brew') ||
+          itemName.includes('cappuccino') || itemName.includes('americano') ||
+          itemName.includes('tea') || itemName.includes('smoothie') ||
+          itemName.includes('chocolate') && item.basePrice < 6) {
+        categories.beverages.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else if (itemName.includes('bread') || itemName.includes('fries') ||
+                 itemName.includes('salad') || item.basePrice < 8) {
+        categories.appetizers.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else if (itemName.includes('tiramisu') || itemName.includes('brownie') ||
+                 itemName.includes('ice cream') || itemName.includes('sundae') ||
+                 itemDescription.includes('dessert')) {
+        categories.desserts.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      } else {
+        // Everything else goes to main courses
+        categories.mains.items.push({
+          ...item,
+          id: item.id.toString(),
+          price: `$${item.basePrice.toFixed(2)}`
+        });
+      }
+    });
+
+    // Filter out empty categories
+    return Object.values(categories).filter(cat => cat.items.length > 0);
+  };
+
+  const menuCategories = categorizeMenuItems();
 
   const updateQuantity = (itemId, change) => {
     setQuantities(prev => ({
@@ -86,7 +130,7 @@ export default function Activity() {
     <div className="mx-auto max-w-screen-2xl p-4 md:p-6 lg:p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">Menu</h1>
-                 <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4">
            <div className="flex items-center gap-2">
              <label className="text-sm font-medium text-foreground">
                Table:
@@ -122,10 +166,30 @@ export default function Activity() {
                )}
              </div>
            </div>
-         </div>
+        </div>
       </div>
       
-      <div className="space-y-8">
+      {/* Loading State */}
+      {loading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-foreground/60">Loading menu items...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {error && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+          <p className="font-medium">Error</p>
+          <p className="text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Menu Items */}
+      {!loading && !error && (
+        <div className="space-y-8">
         {menuCategories.map((category) => (
           <div key={category.title} className="space-y-4">
             <h2 className="text-xl font-semibold text-foreground border-b border-border/50 pb-2">
@@ -165,7 +229,8 @@ export default function Activity() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Cart Button */}
       <div className="fixed bottom-6 right-6 z-50">

@@ -13,8 +13,8 @@ const getHeaders = () => ({
   'X-API-Key': 'pzKOjno8c-aLPvTz0L4b6U-UGDs7_7qq3W7qu7lpF7w',
   'X-APP-ORG-UUID': 'cts',
   'X-APP-USER-UUID': '42388507-ec8f-47ef-a7c7-8ddb69763ac6',
-  'X-APP-CLIENT-USER-SESSION-UUID': 'static-session-uuid-123456',
-  'X-APP-TRACE-ID': 'trace-id-789012',
+  'X-APP-CLIENT-USER-SESSION-UUID': 'Session UUID',
+  'X-APP-TRACE-ID': 'Trace ID (for logging/debugging)',
   'X-APP-REGION-ID': 'US-EAST-1'
 });
 
@@ -102,6 +102,8 @@ export const taskService = {
   // Update task
   updateTask: async (taskData) => {
     try {
+      console.log('Updating task with data:', JSON.stringify(taskData, null, 2));
+      
       const response = await fetch(`${API_BASE_URL}/api/task`, {
         method: 'PUT',
         headers: getHeaders(),
@@ -109,8 +111,12 @@ export const taskService = {
         mode: 'cors'
       });
 
+      console.log('Update task response status:', response.status);
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
       }
 
       return await response.json();
@@ -223,7 +229,7 @@ export const createSeatTask = async (tableTaskUuid, seatId, seatName) => {
   }
 };
 
-export const createSubTask = async (parentTaskUuid, taskName, taskDescription, taskType) => {
+export const createSubTask = async (parentTaskUuid, taskName, taskDescription, taskType, customExtensions = {}) => {
   const taskData = {
     requestContext: {
       parentTaskUuid: parentTaskUuid
@@ -241,7 +247,8 @@ export const createSubTask = async (parentTaskUuid, taskName, taskDescription, t
       project: "Restaurant",
       subtask_of: parentTaskUuid,
       taskType: taskType,
-      taskName: taskName
+      taskName: taskName,
+      ...customExtensions
     }
   };
 
@@ -254,7 +261,7 @@ export const createSubTask = async (parentTaskUuid, taskName, taskDescription, t
   }
 };
 
-export const updateTaskStatus = async (taskUuid, status) => {
+export const updateTaskStatus = async (taskUuid, status, additionalFields = {}) => {
   const taskData = {
     requestContext: {
       taskUuid: taskUuid
@@ -264,7 +271,8 @@ export const updateTaskStatus = async (taskUuid, status) => {
     assigneeInfo: {
       uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
       idType: "INTERNAL_ID"
-    }
+    },
+    ...additionalFields
   };
 
   try {
@@ -294,6 +302,29 @@ export const updateTaskDescription = async (taskUuid, description) => {
     return response;
   } catch (error) {
     console.error('Error updating task description:', error);
+    throw error;
+  }
+};
+
+// Update full task with multiple fields
+export const updateFullTask = async (taskUuid, updateData) => {
+  const taskData = {
+    requestContext: {
+      taskUuid: taskUuid
+    },
+    updateActorType: "USER",
+    assigneeInfo: {
+      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      idType: "INTERNAL_ID"
+    },
+    ...updateData
+  };
+
+  try {
+    const response = await taskService.updateTask(taskData);
+    return response;
+  } catch (error) {
+    console.error('Error updating task:', error);
     throw error;
   }
 };
@@ -374,5 +405,66 @@ export const createRestaurantWorkflowTasks = async (seatTaskUuid) => {
   }
   
   return createdTasks;
+};
+
+// Menu Service - Fetch menu items from API
+export const menuService = {
+  // Get all menu items
+  getMenuItems: async () => {
+    try {
+      console.log('Fetching menu items from API');
+      console.log('Using headers:', getHeaders());
+      
+      const response = await fetch(`${API_BASE_URL}/api/menu-items`, {
+        method: 'GET',
+        headers: getHeaders(),
+        mode: 'cors'
+      });
+
+      console.log('Menu response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Menu API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const menuItems = await response.json();
+      console.log('Menu items fetched successfully:', menuItems);
+      return menuItems;
+    } catch (error) {
+      console.error('Error fetching menu items:', error);
+      
+      // If it's a CORS error and we're in development mode, provide a mock response
+      if (DEVELOPMENT_MODE && (error.message.includes('Failed to fetch') || error.message.includes('CORS'))) {
+        console.warn('CORS Error: Using mock menu items for development.');
+        // Return mock menu items for development
+        return [
+          {id: 3, name: "Americano", description: "Smooth espresso diluted with hot water", basePrice: 3.00, isAvailable: true},
+          {id: 4, name: "Iced Latte", description: "Chilled espresso with cold milk and ice", basePrice: 4.75, isAvailable: true},
+          {id: 5, name: "Garlic Bread", description: "Toasted bread with garlic butter and herbs", basePrice: 5.50, isAvailable: true},
+          {id: 6, name: "Margherita Pizza", description: "Classic pizza with mozzarella, tomato, and basil", basePrice: 12.99, isAvailable: true},
+          {id: 7, name: "Pasta Alfredo", description: "Creamy fettuccine pasta with parmesan sauce", basePrice: 13.50, isAvailable: true},
+          {id: 8, name: "Chicken Burger", description: "Grilled chicken patty with lettuce and mayo in a soft bun", basePrice: 9.99, isAvailable: true},
+          {id: 9, name: "Veggie Wrap", description: "Grilled vegetables wrapped in a soft tortilla with sauce", basePrice: 8.25, isAvailable: true},
+          {id: 10, name: "Caesar Salad", description: "Crisp romaine lettuce with Caesar dressing and croutons", basePrice: 7.50, isAvailable: true},
+          {id: 11, name: "French Fries", description: "Crispy golden fries served with ketchup", basePrice: 4.00, isAvailable: true},
+          {id: 12, name: "Brownie", description: "Chocolate brownie with a fudgy center", basePrice: 5.00, isAvailable: true},
+          {id: 13, name: "Ice Cream Sundae", description: "Vanilla ice cream topped with chocolate sauce and nuts", basePrice: 6.25, isAvailable: true},
+          {id: 14, name: "Mango Smoothie", description: "Fresh mango blended with yogurt and honey", basePrice: 5.75, isAvailable: true},
+          {id: 15, name: "Lemon Iced Tea", description: "Refreshing iced tea with lemon flavor", basePrice: 3.75, isAvailable: true},
+          {id: 16, name: "Cold Brew", description: "Smooth cold brew coffee with bold flavor", basePrice: 4.25, isAvailable: true},
+          {id: 17, name: "Grilled Cheese Sandwich", description: "Melted cheese between toasted bread slices", basePrice: 6.00, isAvailable: true},
+          {id: 18, name: "Club Sandwich", description: "Triple-layered sandwich with chicken, lettuce, and tomato", basePrice: 8.75, isAvailable: true},
+          {id: 19, name: "Tiramisu", description: "Classic Italian dessert with mascarpone and espresso", basePrice: 6.99, isAvailable: true},
+          {id: 20, name: "Espresso Shot", description: "Strong and bold single espresso shot", basePrice: 2.50, isAvailable: true},
+          {id: 21, name: "Hot Chocolate", description: "Creamy hot chocolate topped with whipped cream", basePrice: 4.75, isAvailable: true},
+          {id: 2, name: "Cappuccino", description: "Rich espresso with steamed milk foam", basePrice: 5.00, isAvailable: true}
+        ];
+      }
+      
+      throw error;
+    }
+  }
 };
 

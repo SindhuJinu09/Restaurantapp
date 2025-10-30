@@ -5,7 +5,7 @@ const API_BASE_URL = 'https://jitpnf3pv0.execute-api.us-east-1.amazonaws.com/pro
 // CORS Issue: The API server may not allow requests from localhost:3000 in development
 // To fix this, the backend team needs to add CORS headers allowing localhost origins
 // For now, DEVELOPMENT_MODE provides mock responses to continue development
-const DEVELOPMENT_MODE = true;
+const DEVELOPMENT_MODE = false; // Set to false to see actual API errors
 
 // Static headers for API authentication
 const getHeaders = () => ({
@@ -23,7 +23,7 @@ export const taskService = {
   // Create a new task
   createTask: async (taskData) => {
     try {
-      console.log('Creating task with data:', taskData);
+      console.log('Creating task with data:', JSON.stringify(taskData, null, 2));
       console.log('Using headers:', getHeaders());
       
       const response = await fetch(`${API_BASE_URL}/api/task`, {
@@ -39,6 +39,7 @@ export const taskService = {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('API Error Response:', errorText);
+        console.error('Request body was:', JSON.stringify(taskData, null, 2));
         throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
       }
 
@@ -159,6 +160,55 @@ export const taskService = {
         return {
           httpStatus: "OK",
           responseResult: "SUCCESS"
+        };
+      }
+      
+      throw error;
+    }
+  },
+
+  // Filter tasks by attributes (table_id, task_status, seat_id, etc.)
+  filterTasksByAttributes: async (filterCriteria) => {
+    try {
+      console.log('Filtering tasks with criteria:', filterCriteria);
+      
+      const requestBody = {
+        requestContext: {
+          organizationUuid: "cts",
+          userUuid: "c17084c5-2ec1-4b53-9676-b6377da957d6"
+        },
+        filterCriteria: filterCriteria
+      };
+      
+      const response = await fetch(`${API_BASE_URL}/api/tasks/filter`, {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(requestBody),
+        mode: 'cors'
+      });
+
+      console.log('Filter response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Filter API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('Tasks filtered successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('Error filtering tasks:', error);
+      
+      // Mock response for development when CORS fails
+      if (DEVELOPMENT_MODE && (error.message.includes('Failed to fetch') || error.message.includes('CORS'))) {
+        console.warn('CORS Error: Using mock filter results for development.');
+        return {
+          httpStatus: "OK",
+          responseResult: "SUCCESS",
+          responseReasonCode: "SUCCESS",
+          tasks: []
         };
       }
       

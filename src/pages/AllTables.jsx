@@ -3,6 +3,12 @@ import { Clock, Menu, ArrowRight, ArrowLeft, Plus, Minus, ShoppingCart, X, Messa
 import { useNavigate } from "react-router-dom";
 import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, updateFullTask, TASK_STATUS_MAPPING, menuService } from "../services/taskService";
 
+// Assignee Info - used in all API calls
+const ASSIGNEE_INFO = {
+  uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+  idType: "INTERNAL_ID"
+};
+
 export default function AllTables() {
   const navigate = useNavigate();
   const [statusFilter, setStatusFilter] = useState("all");
@@ -42,10 +48,13 @@ export default function AllTables() {
   
   // Seat selection popup state
   const [showSeatSelectionPopup, setShowSeatSelectionPopup] = useState(false);
+  const [seatAddOptions, setSeatAddOptions] = useState([]); // dynamic seat numbers to add
+  const [isAddingSeats, setIsAddingSeats] = useState(false);
   const [selectedSeatsForTable, setSelectedSeatsForTable] = useState([]);
   
   // Seat number input state
   const [showSeatNumberPrompt, setShowSeatNumberPrompt] = useState(false);
+  const [maxSeatAddCap, setMaxSeatAddCap] = useState(20);
   const [numberOfSeats, setNumberOfSeats] = useState(4); // Default to 4 seats
   const [tableForSeatNumberPrompt, setTableForSeatNumberPrompt] = useState(null);
   
@@ -66,24 +75,61 @@ export default function AllTables() {
   // Menu items state
   const [menuItems, setMenuItems] = useState([]);
   const [menuLoading, setMenuLoading] = useState(true);
+
+  // Ensure menu items are loaded when opening the menu
+  const ensureMenuLoaded = async () => {
+    if (menuItems.length > 0) return;
+    try {
+      setMenuLoading(true);
+      const items = await menuService.getMenuItems();
+      const availableItems = items.filter(item => item.isAvailable);
+      setMenuItems(availableItems);
+    } catch (err) {
+      console.error('Failed to fetch menu items on demand:', err);
+      setMenuItems([]);
+    } finally {
+      setMenuLoading(false);
+    }
+  };
+  
+  // Backend state management - NEW
+  const [activeTasksForTable, setActiveTasksForTable] = useState({}); // tableId -> Array of tasks
+  const [selectedTableId, setSelectedTableId] = useState(null); // Currently viewing table ID
+  const [loadingTasks, setLoadingTasks] = useState(false);
   
   // Initialize individual seat data for each table
   const initializeTableSeats = () => {
     const seatsData = {};
     rows.forEach(row => {
       seatsData[row.id] = {
+        99: {
+          id: 99,
+          tableId: row.id,
+          currentTaskIndex: 0, // Start with Order task (index 0 in new flow)
+          currentTask: { 
+            id: "3", 
+            name: "Order", 
+            statusOptions: ["Pending", "Placed"],
+            currentStatus: "Pending"
+          },
+          minutes: 5,
+          status: "Pending",
+          orderMoreNext: false,
+          serveHistory: [],
+          selectedSeats: [99]
+        },
         1: {
           id: 1,
           tableId: row.id,
-          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTaskIndex: 0, // All seats start with Order task
           currentTask: { 
-            id: "1", 
-            name: "Assign Table", 
-            statusOptions: ["Empty", "Seated"],
-            currentStatus: "Empty"
+            id: "3", 
+            name: "Order", 
+            statusOptions: ["Pending", "Placed"],
+            currentStatus: "Pending"
           },
           minutes: 0,
-          status: "Available",
+          status: "Pending",
           orderMoreNext: false,
           serveHistory: [],
           selectedSeats: [1]
@@ -91,15 +137,15 @@ export default function AllTables() {
         2: {
           id: 2,
           tableId: row.id,
-          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTaskIndex: 0, // All seats start with Order task
           currentTask: { 
-            id: "1", 
-            name: "Assign Table", 
-            statusOptions: ["Empty", "Seated"],
-            currentStatus: "Empty"
+            id: "3", 
+            name: "Order", 
+            statusOptions: ["Pending", "Placed"],
+            currentStatus: "Pending"
           },
           minutes: 0,
-          status: "Available",
+          status: "Pending",
           orderMoreNext: false,
           serveHistory: [],
           selectedSeats: [2]
@@ -107,15 +153,15 @@ export default function AllTables() {
         3: {
           id: 3,
           tableId: row.id,
-          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTaskIndex: 0, // All seats start with Order task
           currentTask: { 
-            id: "1", 
-            name: "Assign Table", 
-            statusOptions: ["Empty", "Seated"],
-            currentStatus: "Empty"
+            id: "3", 
+            name: "Order", 
+            statusOptions: ["Pending", "Placed"],
+            currentStatus: "Pending"
           },
           minutes: 0,
-          status: "Available",
+          status: "Pending",
           orderMoreNext: false,
           serveHistory: [],
           selectedSeats: [3]
@@ -123,15 +169,15 @@ export default function AllTables() {
         4: {
           id: 4,
           tableId: row.id,
-          currentTaskIndex: 0, // Always start with "Assign Table" task
+          currentTaskIndex: 0, // All seats start with Order task
           currentTask: { 
-            id: "1", 
-            name: "Assign Table", 
-            statusOptions: ["Empty", "Seated"],
-            currentStatus: "Empty"
+            id: "3", 
+            name: "Order", 
+            statusOptions: ["Pending", "Placed"],
+            currentStatus: "Pending"
           },
           minutes: 0,
-          status: "Available",
+          status: "Pending",
           orderMoreNext: false,
           serveHistory: [],
           selectedSeats: [4]
@@ -152,8 +198,7 @@ export default function AllTables() {
     { id: 2, status: "In Progress", currentTaskIndex: 1, currentTask: { id: "2", name: "Pre Meal", statusOptions: ["Pending", "Served"], currentStatus: "Pending" }, minutes: 5, orderMoreNext: false, serveHistory: [], selectedSeats: [2] },
     { id: 3, status: "In Progress", currentTaskIndex: 2, currentTask: { id: "3", name: "Order", statusOptions: ["Pending", "Placed"], currentStatus: "Pending" }, minutes: 10, orderMoreNext: false, serveHistory: [], selectedSeats: [3] },
     { id: 4, status: "In Progress", currentTaskIndex: 3, currentTask: { id: "4", name: "Serve", statusOptions: ["Preparing", "Prepared", "Served"], currentStatus: "Preparing", kitchenStatus: "Prepared", serveStatus: "Pending" }, minutes: 15, orderMoreNext: false, serveHistory: [], selectedSeats: [4] },
-    { id: 5, status: "In Progress", currentTaskIndex: 4, currentTask: { id: "5", name: "Post Meal", statusOptions: ["Pending", "Served"], currentStatus: "Pending" }, minutes: 8, orderMoreNext: false, serveHistory: [], selectedSeats: [5] },
-    { id: 6, status: "Pending", currentTaskIndex: 5, currentTask: { id: "6", name: "Payment", statusOptions: ["Pending", "Paid"], currentStatus: "Pending" }, minutes: 3, orderMoreNext: false, serveHistory: [], selectedSeats: [6] }
+    { id: 5, status: "Pending", currentTaskIndex: 4, currentTask: { id: "5", name: "Payment", statusOptions: ["Pending", "Paid"], currentStatus: "Pending" }, minutes: 3, orderMoreNext: false, serveHistory: [], selectedSeats: [5] }
   ]);
   
   const [selectedBarSeat, setSelectedBarSeat] = useState(null);
@@ -222,10 +267,7 @@ export default function AllTables() {
           return seatData.serveHistory.every(order => 
             order.items && order.items.every(item => item.served)
           );
-        case "5": // Post Meal
-          // Only active when status is changed from "Pending" to "Served"
-          return seatData.currentTask.currentStatus === "Served";
-        case "6": // Payment
+        case "5": // Payment
           // Only active when status is changed from "Pending" to "Paid"
           return seatData.currentTask.currentStatus === "Paid";
         default:
@@ -233,31 +275,8 @@ export default function AllTables() {
       }
     }
     
-    // Handle "All Seats" functionality
-    if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
-      switch (currentTaskId) {
-        case "1": // Assign Table
-          return expandedCard.currentTask.currentStatus === "Seated";
-        case "2": // Pre Meal
-          return expandedCard.currentTask.currentStatus === "Served";
-        case "3": // Order
-          return expandedCard.currentTask.currentStatus === "Placed";
-        case "4": // Serve
-          const serveHistory = expandedCard.serveHistory || [];
-          if (serveHistory.length === 0) return false;
-          
-          // Check if all items in all orders are served
-          return serveHistory.every(order => 
-            order.items && order.items.every(item => item.served)
-          );
-        case "5": // Post Meal
-          return expandedCard.currentTask.currentStatus === "Served";
-        case "6": // Payment
-          return isAllSeatsPaid();
-        default:
-          return false;
-      }
-    }
+    // All seats (including seat ID 1 "All Seats") now use the same logic as individual seats
+    // Removed special "All Seats" handling - seat ID 1 follows same flow as other seats
     
     // Handle regular table tasks (fallback)
     const currentStatus = expandedCard.currentTask.currentStatus;
@@ -271,9 +290,7 @@ export default function AllTables() {
       case "4": // Serve
         if (orderMoreSelected) return true;
         return expandedCard.currentTask.serveStatus === "Served";
-      case "5": // Post Meal
-        return currentStatus === "Served";
-      case "6": // Payment
+      case "5": // Payment
         return paymentType === "single" ? isPaid : isAllSeatsPaid();
       default:
         return false;
@@ -310,12 +327,6 @@ export default function AllTables() {
     },
     { 
       id: "5", 
-      name: "Post Meal", 
-      statusOptions: ["Pending", "Served"],
-      currentStatus: "Pending"
-    },
-    { 
-      id: "6", 
       name: "Payment", 
       statusOptions: ["Pending", "Paid"],
       currentStatus: "Pending"
@@ -324,7 +335,7 @@ export default function AllTables() {
 
   const [rows, setRows] = useState([
     { 
-      id: "T-101", 
+      id: "1", 
       currentTaskIndex: 0,
       currentTask: { 
         id: "1", 
@@ -339,7 +350,7 @@ export default function AllTables() {
       selectedSeats: [] // Track selected seats
     },
     { 
-      id: "T-102", 
+      id: "2", 
       currentTaskIndex: 1,
       currentTask: { 
         id: "2", 
@@ -354,7 +365,7 @@ export default function AllTables() {
       selectedSeats: []
     },
     { 
-      id: "T-103", 
+      id: "3", 
       currentTaskIndex: 2,
       currentTask: { 
         id: "3", 
@@ -369,7 +380,7 @@ export default function AllTables() {
       selectedSeats: []
     },
     { 
-      id: "T-104", 
+      id: "4", 
       currentTaskIndex: 3,
       currentTask: { 
         id: "4", 
@@ -386,12 +397,12 @@ export default function AllTables() {
       selectedSeats: []
     },
     { 
-      id: "T-105", 
+      id: "5", 
       currentTaskIndex: 4,
       currentTask: { 
         id: "5", 
-        name: "Post Meal", 
-        statusOptions: ["Pending", "Served"],
+        name: "Payment", 
+        statusOptions: ["Pending", "Paid"],
         currentStatus: "Pending"
       },
       minutes: 5, 
@@ -401,7 +412,7 @@ export default function AllTables() {
       selectedSeats: []
     },
     { 
-      id: "T-106", 
+      id: "6", 
       currentTaskIndex: 5,
       currentTask: { 
         id: "6", 
@@ -482,36 +493,81 @@ export default function AllTables() {
     }
   };
 
-  const handleTableClick = (row) => {
+  // Function to clear all table states
+  const clearAllTableStates = () => {
+    console.log('Clearing all table states');
+    setTableSeats({});
+    setSeatTaskMapping({});
+    setTableTaskMapping({});
+    setSelectedSeatsForTable([]);
+    setSelectedTableForSeats(null);
+    setShowSeatPageView(false);
+    setShowSeatNumberPrompt(false);
+    setTableForSeatNumberPrompt(null);
+  };
+
+  const handleTableClick = async (row) => {
     setSelectedTableForSeats(row);
     
-    // Check if there are any active tasks on any seats of this table
-    const tableId = row.id;
-    const hasActiveTasks = tableSeats[tableId] && Object.values(tableSeats[tableId]).some(seat => {
-      // Check if seat has orders, serve history, or is not in initial state
-      return (seat.serveHistory && seat.serveHistory.length > 0) || 
-             seat.currentTaskIndex > 0 || 
-             seat.currentTask.currentStatus !== "Empty";
-    });
-    
-    // Check if this table already has selected seats (from previous session)
-    const hasSelectedSeats = row.selectedSeats && row.selectedSeats.length > 0;
-    
-    if (hasActiveTasks || hasSelectedSeats) {
-      // If there are active tasks or previously selected seats, go directly to seats page
-      if (hasSelectedSeats) {
-        // Use the previously selected seats
-        setSelectedSeatsForTable(row.selectedSeats);
-      } else {
-        // Select all seats if no specific seats were selected before
-        setSelectedSeatsForTable([1, 2, 3, 4]);
+    // First: check for existing ACTIVE tasks for this table
+    try {
+      const active = await fetchActiveTasks(row.id);
+      if (active && active.length > 0) {
+        // Go straight to seat card view showing active tasks; skip creation flow
+        setShowSeatPageView(true);
+        setShowSeatNumberPrompt(false);
+        return;
       }
-      setShowSeatPageView(true);
-    } else {
-      // If table is completely cleared, show seat number prompt first
+    } catch (e) {
+      console.warn('Active task check failed; falling back to creation flow');
+    }
+
+    // No active tasks → create table task with project parent and proceed to seat selection
+    try {
+      const PROJECT_PARENT_UUID = "aea2f374-9820-4dd3-9808-5d5209ddf896";
+      
+      const tableTaskData = {
+        requestContext: {
+          parentTaskUuid: PROJECT_PARENT_UUID
+        },
+        title: row.id,
+        description: `PARENT TASK TABLE ${row.id}`,
+        assigneeInfo: ASSIGNEE_INFO,
+        dueAt: "2024-12-31T15:00:00",
+        extensionsData: {
+          table_id: row.id,
+          task_status: "ACTIVE",
+          status: "pending",
+          priority: "HIGH",
+          project: "Nucleus",
+          phase: "planning",
+          subtask_of: PROJECT_PARENT_UUID
+        }
+      };
+      
+      console.log('Creating table task with data:', JSON.stringify(tableTaskData, null, 2));
+      const tableResponse = await taskService.createTask(tableTaskData);
+      console.log('Table task response:', tableResponse);
+      
+      if (!tableResponse.taskUuid) {
+        console.error('Failed to create table task');
+        return;
+      }
+      
+      // Store the table task UUID
+      setTableTaskMapping(prev => ({
+        ...prev,
+        [row.id]: tableResponse.taskUuid
+      }));
+      
+      console.log('Successfully created table task with UUID:', tableResponse.taskUuid);
+      
+      // Now show seat selection prompt
       setTableForSeatNumberPrompt(row);
       setNumberOfSeats(4); // Reset to default
       setShowSeatNumberPrompt(true);
+    } catch (error) {
+      console.error('Error creating table task:', error);
     }
   };
 
@@ -527,122 +583,181 @@ export default function AllTables() {
 
   const handleConfirmSeatNumber = async () => {
     if (!tableForSeatNumberPrompt) return;
-    
     try {
-      // Create table task if it doesn't exist
       let tableTaskUuid = tableTaskMapping[tableForSeatNumberPrompt.id];
       if (!tableTaskUuid) {
-        tableTaskUuid = await createTableTask(tableForSeatNumberPrompt.id);
-        setTableTaskMapping(prev => ({
-          ...prev,
-          [tableForSeatNumberPrompt.id]: tableTaskUuid
-        }));
+        const tasks = await fetchActiveTasks(tableForSeatNumberPrompt.id);
+        const anySeat = tasks.find(t => t.extensionsData?.subtask_of);
+        if (anySeat) tableTaskUuid = anySeat.extensionsData.subtask_of;
+      }
+      if (!tableTaskUuid) {
+        console.error('Table task UUID not found');
+        return;
       }
 
-      // Create "All Seats" task first (always seat 1)
-      const allSeatsKey = `${tableForSeatNumberPrompt.id}-1`;
-      if (!seatTaskMapping[allSeatsKey]) {
-        const allSeatsTaskUuid = await createSeatTask(tableTaskUuid, 1, 'All Seats');
-        setSeatTaskMapping(prev => ({
-          ...prev,
-          [allSeatsKey]: allSeatsTaskUuid
-        }));
-      }
-
-      // Create individual seat tasks based on numberOfSeats
-      const seatNumbers = [];
-      for (let i = 1; i <= numberOfSeats; i++) {
-        const seatId = i + 1; // Start from 2 since 1 is "All Seats"
-        const seatKey = `${tableForSeatNumberPrompt.id}-${seatId}`;
-        seatNumbers.push(seatId);
-        
-        if (!seatTaskMapping[seatKey]) {
-          const seatName = `Seat ${i}`;
-          const seatTaskUuid = await createSeatTask(tableTaskUuid, seatId, seatName);
-          
-          setSeatTaskMapping(prev => ({
-            ...prev,
-            [seatKey]: seatTaskUuid
-          }));
-        }
-      }
-
-      // Update the table's selectedSeats property - include "All Seats" (1) and individual seats
-      const allSeats = [1, ...seatNumbers].sort((a, b) => a - b);
-      
-      setRows(prev => prev.map(row => 
-        row.id === tableForSeatNumberPrompt.id 
-          ? { ...row, selectedSeats: allSeats, numberOfSeats: numberOfSeats }
-          : row
-      ));
-      
-      // Initialize seat data for this table
-      setTableSeats(prev => {
-        const updatedSeats = { ...prev };
-        updatedSeats[tableForSeatNumberPrompt.id] = {};
-        
-        // Initialize All Seats
-        updatedSeats[tableForSeatNumberPrompt.id][1] = {
-          id: 1,
-          tableId: tableForSeatNumberPrompt.id,
-          currentTaskIndex: 0,
-          currentTask: { 
-            id: "1", 
-            name: "Assign Table", 
-            statusOptions: ["Empty", "Seated"],
-            currentStatus: "Empty"
-          },
-          minutes: 0,
-          status: "Available",
-          orderMoreNext: false,
-          serveHistory: [],
-          selectedSeats: [1]
-        };
-        
-        // Initialize individual seats
-        for (let i = 1; i <= numberOfSeats; i++) {
-          const seatId = i + 1;
-          updatedSeats[tableForSeatNumberPrompt.id][seatId] = {
-            id: seatId,
-            tableId: tableForSeatNumberPrompt.id,
-            currentTaskIndex: 0,
-            currentTask: { 
-              id: "1", 
-              name: "Assign Table", 
-              statusOptions: ["Empty", "Seated"],
-              currentStatus: "Empty"
-            },
-            minutes: 0,
-            status: "Available",
-            orderMoreNext: false,
-            serveHistory: [],
-            selectedSeats: [seatId]
+      if (isAddingSeats) {
+        // Append next N seats after current max
+        const tasks = await fetchActiveTasks(tableForSeatNumberPrompt.id);
+        const existingSeats = Array.from(new Set(
+          (tasks || [])
+            .map(t => t.extensionsData?.seat_id)
+            .filter(s => s && s !== '99')
+            .map(s => parseInt(s, 10))
+        ));
+        const maxSeat = existingSeats.length > 0 ? Math.max(...existingSeats) : 0;
+        const remaining = Math.max(0, 20 - existingSeats.length);
+        const toCreate = Math.min(numberOfSeats, remaining);
+        for (let i = 1; i <= toCreate; i++) {
+          const seatNum = maxSeat + i;
+          const seatTaskData = {
+            requestContext: { parentTaskUuid: tableTaskUuid },
+            title: 'order',
+            description: `Seat ${seatNum}`,
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: '2024-12-31T15:00:00',
+            extensionsData: {
+              seat_id: seatNum.toString(),
+              table_id: tableForSeatNumberPrompt.id,
+              task_status: 'ACTIVE',
+              status: 'pending',
+              priority: 'HIGH',
+              project: 'Nucleus',
+              phase: 'planning',
+              subtask_of: tableTaskUuid
+            }
           };
+          await taskService.createTask(seatTaskData);
         }
-        
-        return updatedSeats;
-      });
-      
-      // Update the local state
-      setSelectedSeatsForTable(allSeats);
-      setSelectedTableForSeats(tableForSeatNumberPrompt);
-      
-      // Close prompt and show seats page
+      } else {
+        // Initial creation: All Seats (99) and 1..N seats
+        const allSeatsTaskData = {
+          requestContext: { parentTaskUuid: tableTaskUuid },
+          title: 'order',
+          description: 'All Seats',
+          assigneeInfo: ASSIGNEE_INFO,
+          dueAt: '2024-12-31T15:00:00',
+          extensionsData: {
+            seat_id: '99',
+            table_id: tableForSeatNumberPrompt.id,
+            task_status: 'ACTIVE',
+            status: 'pending',
+            priority: 'HIGH',
+            project: 'Nucleus',
+            phase: 'planning',
+            subtask_of: tableTaskUuid
+          }
+        };
+        await taskService.createTask(allSeatsTaskData);
+        for (let i = 1; i <= numberOfSeats; i++) {
+          const seatTaskData = {
+            requestContext: { parentTaskUuid: tableTaskUuid },
+            title: 'order',
+            description: `Seat ${i}`,
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: '2024-12-31T15:00:00',
+            extensionsData: {
+              seat_id: i.toString(),
+              table_id: tableForSeatNumberPrompt.id,
+              task_status: 'ACTIVE',
+              status: 'pending',
+              priority: 'HIGH',
+              project: 'Nucleus',
+              phase: 'planning',
+              subtask_of: tableTaskUuid
+            }
+          };
+          await taskService.createTask(seatTaskData);
+        }
+      }
+
+      await fetchActiveTasks(tableForSeatNumberPrompt.id);
       setShowSeatNumberPrompt(false);
       setTableForSeatNumberPrompt(null);
-      setShowSeatPageView(true);
-      
+      setIsAddingSeats(false);
+      setMaxSeatAddCap(20);
     } catch (error) {
-      console.error('Error creating tasks:', error);
-      // Still proceed with UI updates even if API fails
-      alert('Error creating tasks. Please try again.');
+      console.error('Error creating seat tasks:', error);
+      alert('Failed to create tasks. Please try again.');
     }
   };
 
   const handleConfirmSeatSelection = async () => {
     if (selectedSeatsForTable.length === 0) {
-      // If no seats selected, select all seats by default
-      setSelectedSeatsForTable([1, 2, 3, 4]);
+      setSelectedSeatsForTable(seatAddOptions.length > 0 ? seatAddOptions.slice(0, 4) : [1, 2, 3, 4]);
+    }
+    
+    // If we're adding seats from the seat page, create backend tasks directly
+    if (isAddingSeats && selectedTableForSeats) {
+      try {
+        const tableId = selectedTableForSeats.id;
+        // Determine table task uuid from existing active tasks (subtask_of of any seat task)
+        const tasks = activeTasksForTable[tableId] || [];
+        let tableTaskUuid = null;
+        const anySeatTask = tasks.find(t => t.extensionsData?.subtask_of);
+        if (anySeatTask) tableTaskUuid = anySeatTask.extensionsData.subtask_of;
+        if (!tableTaskUuid) {
+          tableTaskUuid = tableTaskMapping[tableId] || await createTableTask(tableId);
+          setTableTaskMapping(prev => ({ ...prev, [tableId]: tableTaskUuid }));
+        }
+        // Ensure All Seats (99) exists when starting fresh
+        const hasAllSeats = tasks.some(t => t.extensionsData?.seat_id === '99');
+        const existingSeats = Array.from(new Set(
+          tasks.map(t => t.extensionsData?.seat_id)
+            .filter(s => s && s !== '99')
+            .map(s => parseInt(s, 10))
+        ));
+        if (!hasAllSeats && existingSeats.length === 0) {
+          const allSeatsTaskData = {
+            requestContext: { parentTaskUuid: tableTaskUuid },
+            title: 'order',
+            description: 'All Seats',
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: '2024-12-31T15:00:00',
+            extensionsData: {
+              seat_id: '99',
+              table_id: tableId,
+              task_status: 'ACTIVE',
+              status: 'pending',
+              priority: 'HIGH',
+              project: 'Nucleus',
+              phase: 'planning',
+              subtask_of: tableTaskUuid
+            }
+          };
+          await taskService.createTask(allSeatsTaskData);
+        }
+        // Create tasks for selected seats
+        for (const seatId of selectedSeatsForTable) {
+          const seatTaskData = {
+            requestContext: { parentTaskUuid: tableTaskUuid },
+            title: 'order',
+            description: `Seat ${seatId}`,
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: '2024-12-31T15:00:00',
+            extensionsData: {
+              seat_id: seatId.toString(),
+              table_id: tableId,
+              task_status: 'ACTIVE',
+              status: 'pending',
+              priority: 'HIGH',
+              project: 'Nucleus',
+              phase: 'planning',
+              subtask_of: tableTaskUuid
+            }
+          };
+          await taskService.createTask(seatTaskData);
+        }
+        await fetchActiveTasks(tableId);
+        setShowSeatSelectionPopup(false);
+        setIsAddingSeats(false);
+        setSeatAddOptions([]);
+        setSelectedSeatsForTable([]);
+        return;
+      } catch (e) {
+        console.error('Error adding seats:', e);
+        alert('Failed to add seats.');
+        return;
+      }
     }
     
     // Get current selected seats from the table
@@ -669,7 +784,7 @@ export default function AllTables() {
       for (const seatId of mergedSeats) {
         const seatKey = `${selectedTableForSeats.id}-${seatId}`;
         if (!seatTaskMapping[seatKey]) {
-          const seatName = seatId === 1 ? 'All Seats' : `Seat ${seatId - 1}`;
+          const seatName = seatId === 0 ? 'All Seats' : `Seat ${seatId}`;
           const seatTaskUuid = await createSeatTask(tableTaskUuid, seatId, seatName);
           
           setSeatTaskMapping(prev => ({
@@ -680,6 +795,38 @@ export default function AllTables() {
           newSeatTasks[seatId] = seatTaskUuid;
         }
       }
+
+      // Initialize seat data for newly selected seats
+      setTableSeats(prev => {
+        const updatedSeats = { ...prev };
+        if (!updatedSeats[selectedTableForSeats.id]) {
+          updatedSeats[selectedTableForSeats.id] = {};
+        }
+        
+        // Initialize each seat with proper structure
+        mergedSeats.forEach(seatId => {
+          if (!updatedSeats[selectedTableForSeats.id][seatId]) {
+            updatedSeats[selectedTableForSeats.id][seatId] = {
+              id: seatId,
+              tableId: selectedTableForSeats.id,
+              currentTaskIndex: 0,
+              currentTask: { 
+                id: "1", 
+                name: "Assign Table", 
+                statusOptions: ["Empty", "Seated"],
+                currentStatus: "Empty"
+              },
+              minutes: 0,
+              status: "Available",
+              orderMoreNext: false,
+              serveHistory: [],
+              currentTaskUuid: newSeatTasks[seatId] || null
+            };
+          }
+        });
+        
+        return updatedSeats;
+      });
 
       // Update the table's selectedSeats property to remember the selection
       setRows(prev => prev.map(row => 
@@ -708,81 +855,133 @@ export default function AllTables() {
     }
   };
 
-  const handleSeatPageSeatClick = async (seatNumber) => {
-    // Get the individual seat data for this specific seat
-    const seatData = tableSeats[selectedTableForSeats.id]?.[seatNumber];
-    
-    if (!seatData) {
-      console.error(`Seat data not found for table ${selectedTableForSeats.id}, seat ${seatNumber}`);
-      return;
+  // Mark all ACTIVE tasks for a table as COMPLETED in backend
+  const clearTableBackend = async (tableId) => {
+    try {
+      const tasks = activeTasksForTable[tableId] || [];
+      const active = tasks.filter(t => t.extensionsData?.task_status === 'ACTIVE');
+      await Promise.all(active.map(async (t) => {
+        const existingExt = t.extensionsData || {};
+        const updateData = {
+          title: t.title,
+          description: t.description || '',
+          status: 'IN_PROGRESS',
+          dueAt: '2025-12-31T15:00:00',
+          extensionsData: { ...existingExt, task_status: 'COMPLETED' }
+        };
+        try {
+          await updateFullTask(t.taskUuid, updateData);
+        } catch (e) {
+          console.error('Failed to complete task', t.taskUuid, e);
+        }
+      }));
+      await refreshTasksForTable(tableId);
+    } catch (e) {
+      console.error('Error clearing table backend:', e);
     }
+  };
+
+  const handleSeatPageSeatClick = async (seatNumber) => {
+    console.log('=== handleSeatPageSeatClick (Backend-Managed) ===');
+    console.log('Seat Number:', seatNumber);
+    console.log('Selected Table:', selectedTableForSeats);
     
     const tableId = selectedTableForSeats.id;
-    const seatKey = `${tableId}-${seatNumber}`;
-    const seatTaskUuid = seatTaskMapping[seatKey];
     
-    if (!seatTaskUuid) {
-      console.error('Seat task UUID not found for', seatKey);
+    // Get active tasks for this table from backend
+    const tasks = activeTasksForTable[tableId] || [];
+    console.log('Active tasks for table:', tasks);
+    
+    // Find the task for this specific seat (prefer Serve task with ACTIVE status)
+    const seatId = seatNumber.toString();
+    
+    // First, try to find an active Serve task for this seat
+    let seatTask = tasks.find(task => 
+      task.extensionsData?.seat_id === seatId && 
+      task.extensionsData?.task_status === "ACTIVE" &&
+      task.title === "serve"
+    );
+    
+    // If no Serve task found, fall back to Order task
+    if (!seatTask) {
+      seatTask = tasks.find(task => 
+        task.extensionsData?.seat_id === seatId && 
+        task.extensionsData?.task_status === "ACTIVE"
+      );
+    }
+    
+    if (!seatTask) {
+      console.error(`Seat task not found for table ${tableId}, seat ${seatNumber}`);
       return;
     }
     
-    try {
-      // Automatically create Order task when seat is clicked (if not already exists)
-      const orderTaskKey = `${tableId}-${seatNumber}-Order`;
-      let orderTaskUuid = subTaskMapping[orderTaskKey];
-      
-      if (!orderTaskUuid) {
-        console.log('Creating Order task for seat', seatNumber);
-        orderTaskUuid = await createSubTask(
-          seatTaskUuid,
-          `Order - Seat ${seatNumber - 1}`,
-          `Order task for Seat ${seatNumber - 1}`,
-          'ORDER',
-          {
-            seatNumber: seatNumber,
-            tableId: tableId,
-            taskType: 'ORDER'
-          }
-        );
-        
-        // Save the order task UUID
-        setSubTaskMapping(prev => ({
-          ...prev,
-          [orderTaskKey]: orderTaskUuid
-        }));
-        
-        console.log('Order task created:', orderTaskUuid);
-      }
-      
-      // Create a seat object that maintains the table ID for the task flow
+    console.log('Found seat task:', seatTask);
+    
+    // Extract serve history from extensionsData
+    // Get ONLY the MOST RECENT active Serve task for this seat
+    const serveTasks = tasks.filter(task => 
+      task.extensionsData?.seat_id === seatId &&
+      task.extensionsData?.task_status === "ACTIVE" &&
+      task.title === "serve"
+    );
+    
+    console.log('Found serveTasks:', serveTasks);
+    console.log('Number of serveTasks:', serveTasks.length);
+    
+    // If multiple serve tasks, take only the most recent one
+    const latestServeTask = serveTasks.length > 0 ? serveTasks[0] : null;
+    console.log('latestServeTask:', latestServeTask);
+    console.log('latestServeTask orderItems:', latestServeTask?.extensionsData?.orderItems);
+    
+    // Build serve history from the latest Serve task ONLY
+    const serveHistory = latestServeTask ? [{
+      orderNumber: 1,
+      status: "Pending",
+      timestamp: latestServeTask.createdAt ? new Date(latestServeTask.createdAt[0], latestServeTask.createdAt[1] - 1, latestServeTask.createdAt[2], latestServeTask.createdAt[3], latestServeTask.createdAt[4], latestServeTask.createdAt[5]).toLocaleTimeString() : new Date().toLocaleTimeString(),
+      items: latestServeTask.extensionsData?.orderItems?.map(item => ({
+        id: item.id,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+        seatId: seatId,
+        served: item.status === "SERVED"
+      })) || [],
+      note: null
+    }] : [];
+    
+    // Create a seat object from backend task data
       const seatObject = {
         id: `${tableId}-S${seatNumber}`,
         seatNumber: seatNumber,
         tableId: tableId,
         currentTask: {
-          id: "order",
-          name: "Order",
-          type: "ORDER"
+          id: seatTask.title || "order",
+          name: seatTask.title === "serve" ? "Serve" : seatTask.title === "order" ? "Order" : seatTask.title === "payment" ? "Payment" : (seatTask.title || "Order"),
+          type: (seatTask.title || "ORDER").toUpperCase()
         },
-        currentTaskUuid: orderTaskUuid,
-        seatTaskUuid: seatTaskUuid,
-        minutes: seatData.minutes,
-        status: seatData.status,
-        orderMoreNext: seatData.orderMoreNext,
-        serveHistory: [...seatData.serveHistory],
+      currentTaskUuid: seatTask.taskUuid,
+      seatTaskUuid: seatTask.taskUuid,
+      minutes: 0, // Can be calculated from createdAt if needed
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: serveHistory,
         selectedSeats: [seatNumber]
       };
+    
+    console.log('Created seat object:', seatObject);
       
       // Close seat page view and open task flow
       setShowSeatPageView(false);
       setExpandedCard(seatObject);
       setActiveOrderTab(seatNumber.toString());
       
-      // Show menu for ordering
+      // Only open menu for Order task
+      const isOrderTask = seatTask.title === 'order';
+      if (isOrderTask) {
+        try { await ensureMenuLoaded(); } catch {}
       setShowMenu(true);
-      
-    } catch (error) {
-      console.error('Error creating Order task:', error);
+      } else {
+        setShowMenu(false);
     }
   };
 
@@ -826,6 +1025,175 @@ export default function AllTables() {
 
     fetchMenuItems();
   }, []);
+
+  // ==================== BACKEND STATE MANAGEMENT FUNCTIONS ====================
+
+  // Fetch active tasks for a specific table from backend
+  const fetchActiveTasks = async (tableId) => {
+    try {
+      setLoadingTasks(true);
+      console.log('Fetching active tasks for table:', tableId);
+      
+      const filterCriteria = {
+        attributes: [
+          {
+            name: "table_id",
+            values: [tableId]
+          },
+          {
+            name: "task_status",
+            values: ["ACTIVE"]
+          }
+        ]
+      };
+      
+      const response = await taskService.filterTasksByAttributes(filterCriteria);
+      
+      if (response && response.tasks) {
+        console.log(`Fetched ${response.tasks.length} active tasks for table ${tableId}:`, response.tasks);
+        
+        // Store tasks by table ID
+        setActiveTasksForTable(prev => ({
+          ...prev,
+          [tableId]: response.tasks
+        }));
+        
+        return response.tasks;
+      }
+      
+      return [];
+    } catch (error) {
+      console.error('Error fetching active tasks:', error);
+      return [];
+    } finally {
+      setLoadingTasks(false);
+    }
+  };
+
+  // Refresh tasks for a specific table
+  const refreshTasksForTable = async (tableId) => {
+    console.log('Refreshing tasks for table:', tableId);
+    await fetchActiveTasks(tableId);
+  };
+
+  // Prefetch active tasks for all visible tables so badges persist on reload
+  useEffect(() => {
+    try {
+      if (filteredRows && Array.isArray(filteredRows)) {
+        filteredRows.forEach(row => {
+          if (!activeTasksForTable[row.id]) {
+            fetchActiveTasks(row.id);
+          }
+        });
+      }
+    } catch (e) {
+      console.warn('Prefetch tables error:', e);
+    }
+  }, []);
+
+  // Create table and seat tasks using backend
+  const createBackendTasks = async (tableId, numberOfSeats) => {
+    try {
+      console.log(`Creating backend tasks for table ${tableId} with ${numberOfSeats} seats`);
+      
+      const createdTaskIds = {
+        tableTaskUuid: null,
+        allSeatsTaskUuid: null,
+        seatTasks: {}
+      };
+      
+      // 1. Create Parent Table Task FIRST
+      const tableTaskData = {
+        requestContext: {},
+        title: "table " + tableId,
+        description: "Main task for table " + tableId,
+        assigneeInfo: ASSIGNEE_INFO,
+        dueAt: "2024-12-31T15:00:00",
+        extensionsData: {
+          table_id: tableId,
+          task_status: "ACTIVE",
+          status: "pending",
+          priority: "HIGH",
+          project: "Nucleus",
+          phase: "planning"
+        }
+      };
+      
+      console.log('Creating table task with data:', JSON.stringify(tableTaskData, null, 2));
+      const tableResponse = await taskService.createTask(tableTaskData);
+      console.log('Table task response:', tableResponse);
+      if (!tableResponse.taskUuid) {
+        console.error('Table task response missing taskUuid:', tableResponse);
+        throw new Error('Failed to create table task');
+      }
+      createdTaskIds.tableTaskUuid = tableResponse.taskUuid;
+      console.log('Successfully created table task:', createdTaskIds.tableTaskUuid);
+      
+      // 2. Create "All Seats" Task (seat_id = 99)
+      const allSeatsTaskData = {
+        requestContext: {
+          taskUuid: createdTaskIds.tableTaskUuid
+        },
+        title: "order",
+        description: "first task",
+        assigneeInfo: ASSIGNEE_INFO,
+        dueAt: "2024-12-31T15:00:00",
+        extensionsData: {
+          seat_id: "99",
+          table_id: tableId,
+          task_status: "ACTIVE",
+          status: "pending",
+          priority: "HIGH",
+          project: "Nucleus",
+          phase: "planning"
+        }
+      };
+      
+      const allSeatsResponse = await taskService.createTask(allSeatsTaskData);
+      if (!allSeatsResponse.taskUuid) {
+        throw new Error('Failed to create all seats task');
+      }
+      createdTaskIds.allSeatsTaskUuid = allSeatsResponse.taskUuid;
+      console.log('Created all seats task:', createdTaskIds.allSeatsTaskUuid);
+      
+      // 3. Create Individual Seat Tasks (seat_id = 1, 2, 3, ...)
+      for (let i = 1; i <= numberOfSeats; i++) {
+        const seatTaskData = {
+          requestContext: {
+            taskUuid: createdTaskIds.tableTaskUuid
+          },
+          title: "order",
+          description: "first task",
+          assigneeInfo: ASSIGNEE_INFO,
+          dueAt: "2024-12-31T15:00:00",
+          extensionsData: {
+            seat_id: i.toString(),
+            table_id: tableId,
+            task_status: "ACTIVE",
+            status: "pending",
+            priority: "HIGH",
+            project: "Nucleus",
+            phase: "planning"
+          }
+        };
+        
+        const seatResponse = await taskService.createTask(seatTaskData);
+        if (!seatResponse.taskUuid) {
+          throw new Error(`Failed to create seat ${i} task`);
+        }
+        createdTaskIds.seatTasks[i] = seatResponse.taskUuid;
+        console.log(`Created seat ${i} task:`, seatResponse.taskUuid);
+      }
+      
+      // 4. Fetch all active tasks to update UI
+      await fetchActiveTasks(tableId);
+      
+      return createdTaskIds;
+    } catch (error) {
+      console.error('Error creating backend tasks:', error);
+      throw error;
+    }
+  };
 
   // Categorize menu items dynamically based on price ranges and keywords
   const categorizeMenuItems = () => {
@@ -1017,12 +1385,12 @@ export default function AllTables() {
         : item.basePrice || item.price || 0;
       
       return {
-        id: item.id,
-        name: item.name,
-        quantity: item.quantity,
+      id: item.id,
+      name: item.name,
+      quantity: item.quantity,
         price: basePrice,
-        seatId: item.seatId,
-        kitchenStatus: "Preparing"
+      seatId: item.seatId,
+      kitchenStatus: "Preparing"
       };
     });
     
@@ -1080,11 +1448,9 @@ export default function AllTables() {
         // Bar seat - use the current task UUID
         taskUuidToUpdate = expandedCard.currentTaskUuid;
         console.log('Updating bar seat Order task:', taskUuidToUpdate);
-      } else if (!expandedCard.seat) {
-        // Regular table order - update All Seats task
-        const allSeatsKey = `${tableId}-1`;
-        taskUuidToUpdate = seatTaskMapping[allSeatsKey];
-        console.log('Updating regular table Order task:', taskUuidToUpdate);
+      } else if (!expandedCard.seat && !expandedCard.seatNumber && !expandedCard.tableId) {
+        // This should not happen anymore since all seats follow the same logic
+        console.warn('No seat information found for order placement');
       }
       
       if (taskUuidToUpdate) {
@@ -1098,7 +1464,17 @@ export default function AllTables() {
           taskTitle = `Table ${expandedCard.id}`;
         }
         
-        // Update task with order items in extensionsData (matching Postman format exactly)
+        // Merge any existing order items (important for Order More flow)
+        let existingOrderItems = [];
+        try {
+          const existingOrder = await taskService.getTaskById(taskUuidToUpdate);
+          existingOrderItems = existingOrder?.taskDTO?.extensionsData?.orderItems || [];
+        } catch (e) {
+          console.warn('Could not fetch existing order items; proceeding with current cart only');
+        }
+        const mergedOrderItems = [...existingOrderItems, ...apiOrderItems];
+
+        // Update task with merged order items in extensionsData (matching Postman format)
         const updateData = {
           title: taskTitle,
           description: fullOrderDescription,
@@ -1106,13 +1482,64 @@ export default function AllTables() {
           dueAt: "2025-12-31T15:00:00",
           extensionsData: {
             priority: "HIGH",
-            orderItems: apiOrderItems  // Now includes orderNote, orderTimestamp, orderStatus in each item
+            task_status: "COMPLETED",  // Mark Order task as completed
+            orderItems: mergedOrderItems  // Preserve previous + add new items
           }
         };
         
         console.log('Updating task with order items:', JSON.stringify(updateData, null, 2));
         await updateFullTask(taskUuidToUpdate, updateData);
         console.log('Order task updated successfully with cart items');
+        
+        // Now create a Serve task with the order items
+        try {
+          const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString() || 'N/A';
+          const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
+          
+          // Create Serve task with merged items
+          const serveTaskData = {
+            requestContext: {
+              parentTaskUuid: taskUuidToUpdate  // Make it a child of the Order task
+            },
+            title: "serve",
+            description: fullOrderDescription,
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: "2024-12-31T15:00:00",
+            extensionsData: {
+              seat_id: seatId,
+              table_id: tableId,
+              task_status: "ACTIVE",
+              status: "pending",
+              priority: "HIGH",
+              project: "Nucleus",
+              phase: "planning",
+              subtask_of: taskUuidToUpdate,  // Add parent task UUID
+              orderItems: mergedOrderItems  // Copy all items to Serve task
+            }
+          };
+          
+          console.log('Creating Serve task:', JSON.stringify(serveTaskData, null, 2));
+          const serveTaskResponse = await taskService.createTask(serveTaskData);
+          console.log('Serve task created:', serveTaskResponse);
+          
+          if (serveTaskResponse.taskUuid) {
+            console.log('Serve task UUID:', serveTaskResponse.taskUuid);
+            // Refresh tasks for this table to update the UI
+            if (tableId !== 'N/A') {
+              await refreshTasksForTable(tableId);
+            }
+            // Switch UI to the new Serve task
+          setExpandedCard(prev => ({
+            ...prev,
+              currentTask: { id: 'serve', name: 'Serve', type: 'SERVE' },
+              currentTaskUuid: serveTaskResponse.taskUuid
+            }));
+            setShowMenu(false);
+          }
+        }
+        catch (error) {
+          console.error('Error creating Serve task:', error);
+        }
       } else {
         console.warn('No task UUID found to update with order items');
       }
@@ -1121,96 +1548,8 @@ export default function AllTables() {
     }
     
     // Handle different seat types
-    if (expandedCard.seat) {
-      // Bar seat order
-      setBarSeats(prev => prev.map(seat => {
-        if (seat.id === expandedCard.seat.id) {
-          const existingOrders = seat.serveHistory || [];
-          const updatedOrder = {
-            ...newOrder,
-            orderNumber: existingOrders.length + 1
-          };
-          
-          const updatedSeat = {
-            ...seat,
-            currentTaskIndex: 3,
-            currentTask: { ...taskFlow[3] },
-            serveHistory: [...existingOrders, updatedOrder]
-          };
-          
-          // Update expandedCard to reflect the new seat data
-          setExpandedCard(prev => ({
-            ...prev,
-            seat: updatedSeat,
-            currentTaskIndex: 3,
-            currentTask: { ...taskFlow[3] }
-          }));
-          
-          return updatedSeat;
-        }
-        return seat;
-      }));
-      
-    } else if (expandedCard.seatNumber && expandedCard.tableId) {
-      // Table seat order
-      setTableSeats(prev => {
-        const updatedSeats = { ...prev };
-        const tableId = expandedCard.tableId;
-        const seatNumber = expandedCard.seatNumber;
-        const seatData = updatedSeats[tableId]?.[seatNumber];
-        
-        if (seatData) {
-          const existingOrders = seatData.serveHistory || [];
-          const updatedOrder = {
-            ...newOrder,
-            orderNumber: existingOrders.length + 1
-          };
-          
-          const updatedSeat = {
-            ...seatData,
-            currentTaskIndex: 3,
-            currentTask: { ...taskFlow[3] },
-            serveHistory: [...existingOrders, updatedOrder]
-          };
-          
-          updatedSeats[tableId][seatNumber] = updatedSeat;
-          
-          // Update expandedCard to reflect the new seat data
-          setExpandedCard(prev => ({
-            ...prev,
-            serveHistory: [...existingOrders, updatedOrder],
-            currentTaskIndex: 3,
-            currentTask: { ...taskFlow[3] }
-          }));
-          
-          return updatedSeats;
-        }
-        
-        return prev;
-      });
-      
-      } else {
-      // Regular table order
-      const idx = rows.findIndex(r => r.id === expandedCard.id);
-      if (idx !== -1) {
-        const updatedRows = [...rows];
-        const existingOrders = updatedRows[idx].serveHistory || [];
-        const updatedOrder = {
-          ...newOrder,
-          orderNumber: existingOrders.length + 1
-        };
-        
-        updatedRows[idx] = {
-          ...updatedRows[idx],
-          currentTaskIndex: 3,
-          currentTask: { ...taskFlow[3] },
-          serveHistory: [...existingOrders, updatedOrder]
-        };
-        
-        setRows(updatedRows);
-        setExpandedCard(updatedRows[idx]);
-      }
-    }
+    // For multi-user backend truth, do not mutate local serveHistory.
+    // Just switch UI status; rendering will be from backend serve task only.
     
     // Clear the cart
     setTableCarts(prev => {
@@ -1226,20 +1565,122 @@ export default function AllTables() {
     setShowMenu(false);
   };
 
-  // NEW CLEAN SERVE TASK DISPLAY
+  // Create a new Order task as a child of the current Serve task and copy items
+  const handleOrderMoreClick = async () => {
+    if (!expandedCard) return;
+    try {
+      // Identify table and seat
+      const tableId = expandedCard.tableId || expandedCard.seat?.tableId || expandedCard.id;
+      const seatId = (expandedCard.seat?.id ?? expandedCard.seatNumber)?.toString();
+      const parentServeUuid = expandedCard.currentTaskUuid; // current Serve task
+      if (!tableId || !seatId || !parentServeUuid) return;
+
+      // Find the current serve task from backend cache to copy items
+      const tasks = activeTasksForTable[tableId] || [];
+      const serveTask = tasks.find(t => t.taskUuid === parentServeUuid)
+        || tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId);
+      const previousItems = serveTask?.extensionsData?.orderItems || [];
+
+      // Mark current Serve task as COMPLETED before moving to new Order
+      try {
+        await updateFullTask(parentServeUuid, {
+          title: serveTask?.title || 'serve',
+          description: serveTask?.description || 'Serve task',
+          status: 'IN_PROGRESS',
+          dueAt: '2025-12-31T15:00:00',
+          extensionsData: {
+            ...(serveTask?.extensionsData || {}),
+            task_status: 'COMPLETED'
+          }
+        });
+      } catch (e) {
+        console.error('Failed to mark Serve as COMPLETED:', e);
+      }
+
+      // Create a new Order task as child of Serve
+      const orderTaskData = {
+        requestContext: { parentTaskUuid: parentServeUuid },
+        title: 'order',
+        description: 'Order More',
+        assigneeInfo: ASSIGNEE_INFO,
+        dueAt: '2024-12-31T15:00:00',
+        extensionsData: {
+          seat_id: seatId,
+          table_id: tableId,
+          task_status: 'ACTIVE',
+          status: 'pending',
+          priority: 'HIGH',
+          project: 'Nucleus',
+          phase: 'planning',
+          subtask_of: parentServeUuid,
+          orderItems: previousItems
+        }
+      };
+
+      const orderResp = await taskService.createTask(orderTaskData);
+      if (tableId) await refreshTasksForTable(tableId);
+
+      // Switch UI to the new Order task and open menu
+      if (orderResp?.taskUuid) {
+        setExpandedCard(prev => ({
+          ...prev,
+          currentTask: { id: 'order', name: 'Order', type: 'ORDER' },
+          currentTaskUuid: orderResp.taskUuid
+        }));
+        await ensureMenuLoaded();
+        setShowMenu(true);
+      }
+    } catch (e) {
+      console.error('Error in Order More flow:', e);
+    }
+  };
+
+  // NEW CLEAN SERVE TASK DISPLAY - backend source of truth only
   const newGetServeOrders = () => {
     if (!expandedCard) return [];
     
-    if (expandedCard.seat) {
-      // Bar seat orders
-      return expandedCard.seat.serveHistory || [];
-    } else if (expandedCard.seatNumber && expandedCard.tableId) {
-      // Table seat orders
-      return expandedCard.serveHistory || [];
-    } else {
-      // Regular table orders
-      return expandedCard.serveHistory || [];
+    // Determine table and seat context
+    const tableId = expandedCard.tableId || expandedCard.seat?.tableId || expandedCard.id;
+    const seatId = (expandedCard.seat?.id ?? expandedCard.seatNumber)?.toString();
+    if (!tableId || !seatId) return [];
+    
+    // Use backend-fetched tasks for the table
+    const tasks = activeTasksForTable[tableId] || [];
+    const serveTasks = tasks.filter(t => 
+      t.extensionsData?.seat_id === seatId &&
+      t.extensionsData?.task_status === 'ACTIVE' &&
+      t.title === 'serve'
+    );
+    if (serveTasks.length === 0) return [];
+    const latestServeTask = serveTasks[0];
+    const allItems = latestServeTask.extensionsData?.orderItems || [];
+    const seatIdFromBackend = latestServeTask.extensionsData?.seat_id;
+
+    // Group items by their orderTimestamp
+    const groups = new Map();
+    for (const item of allItems) {
+      const ts = item.orderTimestamp || 'UNKNOWN';
+      if (!groups.has(ts)) groups.set(ts, []);
+      groups.get(ts).push(item);
     }
+
+    // Sort groups by timestamp ascending (UNKNOWN last)
+    const sortedTimestamps = Array.from(groups.keys()).sort((a, b) => {
+      if (a === 'UNKNOWN') return 1;
+      if (b === 'UNKNOWN') return -1;
+      return new Date(a).getTime() - new Date(b).getTime();
+    });
+
+    // Build orders array: Order #1, #2, ...
+    const orders = sortedTimestamps.map((ts, idx) => ({
+      orderNumber: idx + 1,
+      status: 'Pending',
+      timestamp: ts === 'UNKNOWN' ? new Date().toLocaleTimeString() : new Date(ts).toLocaleTimeString(),
+      seatId: seatIdFromBackend,
+      items: groups.get(ts)
+    }));
+
+    return orders;
   };
 
   const newUpdateItemServed = (orderIndex, itemIndex, served) => {
@@ -1778,107 +2219,8 @@ export default function AllTables() {
       return;
     }
     
-    // Handle "All Seats" case - update both rows and expandedCard
-    if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
-      const tableId = expandedCard.id;
-      const allSeatsKey = `${tableId}-1`; // All Seats is seat 1
-      const allSeatsTaskUuid = seatTaskMapping[allSeatsKey];
-      
-      try {
-        // Update current task status before creating next task
-        const currentStatus = expandedCard.currentTask.currentStatus;
-        const backendStatus = TASK_STATUS_MAPPING[currentStatus] || 'IN_PROGRESS';
-        if (allSeatsTaskUuid) {
-          await updateTaskStatusAPI(allSeatsTaskUuid, backendStatus);
-        }
-        
-        // Update the rows state
-        const currentIndex = rows.findIndex(row => row.id === expandedCard.id);
-        if (currentIndex !== -1 && canProceedToNextTask()) {
-          const updatedRows = [...rows];
-          const nextTaskIndex = updatedRows[currentIndex].currentTaskIndex + 1;
-          const nextTask = taskFlow[nextTaskIndex];
-          
-          // Create sub-task for the next task with proper parent linkage
-          if (allSeatsTaskUuid) {
-            const subTaskKey = `${tableId}-1-${nextTask.name}`;
-            
-            // Check if this sub-task already exists
-            if (!subTaskMapping[subTaskKey]) {
-              createSubTask(
-                allSeatsTaskUuid, 
-                nextTask.name, 
-                `Task: ${nextTask.name} for All Seats`, 
-                nextTask.name.replace(/ /g, '_').toUpperCase(),
-                {
-                  seatType: 'ALL_SEATS',
-                  tableId: tableId,
-                  taskFlowIndex: nextTaskIndex
-                }
-              )
-                .then(subTaskUuid => {
-                  setSubTaskMapping(prev => ({
-                    ...prev,
-                    [subTaskKey]: subTaskUuid
-                  }));
-                })
-                .catch(error => console.error('Error creating sub-task:', error));
-            }
-          }
-          
-          updatedRows[currentIndex] = {
-            ...updatedRows[currentIndex],
-            currentTaskIndex: nextTaskIndex,
-            currentTask: {
-              ...nextTask,
-              currentStatus: nextTask.statusOptions[0] || "Pending"
-            }
-          };
-          
-          setRows(updatedRows);
-          
-          // Update the expanded card to match
-          setExpandedCard(prev => ({
-            ...prev,
-            currentTaskIndex: nextTaskIndex,
-            currentTask: {
-              ...nextTask,
-              currentStatus: nextTask.statusOptions[0] || "Pending"
-            }
-          }));
-        }
-      } catch (error) {
-        console.error('Error updating All Seats task status:', error);
-        // Still proceed with UI updates even if API fails
-        const currentIndex = rows.findIndex(row => row.id === expandedCard.id);
-        if (currentIndex !== -1 && canProceedToNextTask()) {
-          const updatedRows = [...rows];
-          const nextTaskIndex = updatedRows[currentIndex].currentTaskIndex + 1;
-          const nextTask = taskFlow[nextTaskIndex];
-          
-          updatedRows[currentIndex] = {
-            ...updatedRows[currentIndex],
-            currentTaskIndex: nextTaskIndex,
-            currentTask: {
-              ...nextTask,
-              currentStatus: "Pending"
-            }
-          };
-          
-          setRows(updatedRows);
-          setExpandedCard(prev => ({
-            ...prev,
-            currentTaskIndex: nextTaskIndex,
-            currentTask: {
-              ...nextTask,
-              currentStatus: "Pending"
-            }
-          }));
-        }
-      }
-      
-      return;
-    }
+    // All seats (including seat ID 1 "All Seats") now use the same individual seat logic
+    // Removed special "All Seats" handling - seat ID 1 follows same flow as other seats
     
     // Original logic for non-seat tasks
     const currentIndex = rows.findIndex(row => row.id === expandedCard.id);
@@ -1972,7 +2314,7 @@ export default function AllTables() {
     // Original logic for non-seat tasks (All Seats case)
     try {
       // Update All Seats task status via API
-      const allSeatsKey = `${tableId}-1`; // All Seats is seat 1
+      const allSeatsKey = `${tableId}-0`; // All Seats is seat 0
       const allSeatsTaskUuid = seatTaskMapping[allSeatsKey];
       
       if (allSeatsTaskUuid) {
@@ -2086,54 +2428,52 @@ export default function AllTables() {
       )}
 
       <div className="px-3 md:px-4 py-3">
+        {/* Clear All Tables Button */}
+        {!expandedCard && !showSeatPageView && (
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={clearAllTableStates}
+              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:scale-95 transition-all duration-200 font-medium shadow-md"
+            >
+              Clear All Tables
+            </button>
+          </div>
+        )}
+        
         {/* Cards Grid */}
         {!expandedCard && !showSeatPageView && (
           <div className="grid grid-cols-2 gap-3 sm:gap-4">
             {filteredRows.map((row) => {
-              // Enhanced color scheme based on task type
-              const getTableBackgroundClass = (taskId) => {
-                switch (taskId) {
-                  case "1": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
-                  case "2": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
-                  case "3": return "bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 hover:shadow-orange-200/50";
-                  case "4": return "bg-gradient-to-br from-red-50 to-red-100 border-red-200 hover:shadow-red-200/50";
-                  case "5": return "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
-                  case "6": return "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50";
-                  default: return "bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 hover:shadow-gray-200/50";
-                }
-              };
-              
-              const backgroundClass = getTableBackgroundClass(row.currentTask.id);
+              // Simple color scheme: blue by default, green if table has ACTIVE tasks
+              const hasActive = (activeTasksForTable[row.id] || []).length > 0;
+              const backgroundClass = hasActive
+                ? "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50"
+                : "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
               return (
               <div 
                 key={row.id} 
                 className={`rounded-xl md:rounded-2xl border-2 p-3 md:p-4 space-y-2 md:space-y-4 ${backgroundClass} cursor-pointer hover:shadow-xl active:scale-[0.98] transition-all duration-200 text-xs`}
                 onClick={() => handleTableClick(row)}
               >
-                <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-xs text-foreground/60 font-medium">Table ID</div>
-                    <div className="font-mono font-bold text-sm text-gray-800">{row.id}</div>
-                    {row.selectedSeats && row.selectedSeats.length > 0 && (
+                  <div className="font-mono font-bold text-sm text-gray-800">Table {row.id}</div>
+                  {(() => {
+                    const tasks = activeTasksForTable[row.id] || [];
+                    const seatIds = Array.from(new Set(
+                      tasks
+                        .map(t => t.extensionsData?.seat_id)
+                        .filter(s => s !== undefined && s !== null)
+                    ));
+                    seatIds.sort((a, b) => {
+                      const an = parseInt(a, 10); const bn = parseInt(b, 10);
+                      if (an === 99) return 1; if (bn === 99) return -1; return an - bn;
+                    });
+                    return seatIds.length > 0 ? (
                       <div className="text-xs text-green-600 font-medium mt-1">
-                        🪑 Seats {row.selectedSeats.sort((a, b) => a - b).join(', ')}
+                        🪑 Seats {seatIds.join(', ')}
                       </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-foreground/60 font-medium">Task</div>
-                    <div className="text-xs font-semibold text-gray-800">{row.currentTask.name}</div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-foreground/70">
-                  <div className="flex items-center gap-2 bg-white/50 rounded-lg px-2 py-1">
-                    <Clock className="h-3.5 w-3.5 text-blue-600" />
-                    <span className="text-xs font-medium text-gray-700">{row.minutes} mins</span>
-                  </div>
-                  <div className="px-2 py-1 rounded-lg bg-white/50">
-                    <span className="text-xs font-medium text-gray-700">Task {row.currentTask.id}</span>
-                  </div>
+                    ) : null;
+                  })()}
                 </div>
               </div>
               );
@@ -2278,15 +2618,17 @@ export default function AllTables() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 md:gap-4">
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Bar Seat ID</div>
-                      <div className="font-mono font-bold text-sm text-gray-800">Seat {expandedCard.seat.id}</div>
+                      <div className="text-xs text-gray-600 font-medium">Table</div>
+                      <div className="font-semibold text-sm text-gray-800">Table {expandedCard.tableId || expandedCard.seat?.tableId || 'N/A'}</div>
                     </div>
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Task ID</div>
-                      <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.seat.currentTask.id}</div>
+                      <div className="text-xs text-gray-600 font-medium">Seat</div>
+                      <div className="font-semibold text-sm text-gray-800">
+                        {expandedCard.seat?.id === 99 ? 'All Seats' : `${expandedCard.seat?.id || expandedCard.seatNumber || 'N/A'}`}
+                      </div>
                     </div>
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                      <div className="text-xs text-gray-600 font-medium">Task</div>
                       <div className="font-semibold text-sm text-gray-800">{expandedCard.seat.currentTask.name}</div>
                     </div>
                   </div>
@@ -2367,7 +2709,7 @@ export default function AllTables() {
               {!showMenu && (
                 <div className="flex-1 p-8 md:p-6 overflow-y-auto">
                   <div className="space-y-4">
-                    {expandedCard.seat.currentTask.id === "4" ? (
+                    {(expandedCard.seat.currentTask.id === "4" || expandedCard.currentTask?.id === "serve" || expandedCard.currentTask?.type === "SERVE") ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                             <div className="text-center mb-4">
@@ -2404,7 +2746,7 @@ export default function AllTables() {
                                       
                                       {/* Seat Number */}
                                       <div className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
-                                        Seat {item.seatId}
+                                        Seat {order.seatId}
                                             </div>
                                       
                                       {/* Quantity */}
@@ -2646,29 +2988,9 @@ export default function AllTables() {
             {/* Footer */}
             <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-purple-50">
               <div className="flex items-center gap-2">
-                {expandedCard.seat.currentTask.id === "4" && (
+                {(expandedCard.seat.currentTask.id === "4" || expandedCard.currentTask?.id === "serve" || expandedCard.currentTask?.type === "SERVE") && (
                   <button
-                    onClick={() => {
-                      // Immediately jump to Order task when clicking Order More in Serve
-                      if (selectedBarSeat) {
-                        const updatedSeats = barSeats.map(seat => {
-                          if (seat.id === selectedBarSeat.id) {
-                            seat.currentTaskIndex = 2; // Order task index
-                            seat.currentTask = { ...taskFlow[2] };
-                            return seat;
-                          }
-                          return seat;
-                        });
-                        setBarSeats(updatedSeats);
-                        setSelectedBarSeat(updatedSeats.find(s => s.id === selectedBarSeat.id));
-                        setExpandedCard({ 
-                          id: `BAR-SEAT-${selectedBarSeat.id}`, 
-                          type: "bar-seat", 
-                          seat: updatedSeats.find(s => s.id === selectedBarSeat.id),
-                          selectedSeats: [selectedBarSeat.id]
-                        });
-                      }
-                    }}
+                    onClick={handleOrderMoreClick}
                     className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
                       orderMoreSelected 
                         ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 
@@ -2687,15 +3009,7 @@ export default function AllTables() {
                     <span className="text-xs md:text-sm font-medium">Order More</span>
                               </button>
                 )}
-                {expandedCard.seat.currentTask.id === "3" && (
-                  <button
-                    onClick={() => setShowMenu(!showMenu)}
-                    className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
-                  >
-                    <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
-                    <span className="text-xs font-medium text-orange-700">Menu</span>
-                  </button>
-                )}
+                {/* Menu toggle removed: menu shows by default for Order */}
                 {showMenu && (
                   <button
                     onClick={() => setShowCart(true)}
@@ -2710,6 +3024,8 @@ export default function AllTables() {
                     )}
                   </button>
                 )}
+                {/* Next Task button removed in bar-seat footer */}
+                {false && (
                 <button
                   onClick={() => {
                     // Handle next task for bar seat
@@ -2744,6 +3060,7 @@ export default function AllTables() {
                   <span className="text-xs md:text-sm">Next Task</span>
                   <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -2777,7 +3094,7 @@ export default function AllTables() {
                       <div className="font-medium text-sm">{item.name}</div>
                       <div className="text-xs text-foreground/60">{item.price}</div>
                       <div className="text-xs text-purple-600 font-medium">
-                        For Seat {item.seatId}
+                        For Seat {expandedCard.seat?.id || expandedCard.seatNumber}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2810,8 +3127,6 @@ export default function AllTables() {
                   <button
                     onClick={() => {
                       newPlaceOrder();
-                      const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
-                      alert(`Order placed successfully for Seat ${expandedCard.seat.id}${noteMsg}!`);
                     }}
                     className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 active:scale-95 transition mt-2"
                   >
@@ -2847,15 +3162,15 @@ export default function AllTables() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-3 md:gap-4">
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Table Seat ID</div>
-                      <div className="font-mono font-bold text-sm text-gray-800">Seat {expandedCard.seatNumber}</div>
+                      <div className="text-xs text-gray-600 font-medium">Table</div>
+                      <div className="font-semibold text-sm text-gray-800">{expandedCard.tableId}</div>
                     </div>
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Task ID</div>
-                      <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.currentTask.id}</div>
+                      <div className="text-xs text-gray-600 font-medium">Seat</div>
+                      <div className="font-semibold text-sm text-gray-800">{expandedCard.seatNumber === 99 ? 'All Seats' : `${expandedCard.seatNumber}`}</div>
                     </div>
                     <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                      <div className="text-xs text-gray-600 font-medium">Task</div>
                       <div className="font-semibold text-sm text-gray-800">{expandedCard.currentTask.name}</div>
                     </div>
                   </div>
@@ -2972,7 +3287,7 @@ export default function AllTables() {
                           </button>
                         </div>
                       </div>
-                    ) : expandedCard.currentTask.id === "4" ? (
+                    ) : (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                         <div className="text-center mb-4">
@@ -3009,7 +3324,7 @@ export default function AllTables() {
                                       
                                       {/* Seat Number */}
                                       <div className="text-sm font-medium text-blue-600 bg-blue-100 px-2 py-1 rounded-md">
-                                        Seat {item.seatId}
+                                        Seat {expandedCard.seat?.id || expandedCard.seatNumber}
                                       </div>
                                       
                                       {/* Quantity */}
@@ -3281,7 +3596,7 @@ export default function AllTables() {
                             }}
                             className="px-2 py-1 rounded border border-border/50 bg-card text-xs outline-none focus:ring-1 focus:ring-primary/30"
                           >
-                            {expandedCard.currentTask.statusOptions.map(option => (
+                            {expandedCard.currentTask.statusOptions && expandedCard.currentTask.statusOptions.map(option => (
                               <option key={option} value={option}>{option}</option>
                             ))}
                           </select>
@@ -3295,33 +3610,9 @@ export default function AllTables() {
             {/* Footer - Copy from Bar Seat */}
             <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-purple-50">
               <div className="flex items-center gap-2">
-                {expandedCard.currentTask.id === "4" && (
+                {(expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") && (
                   <button
-                    onClick={() => {
-                      // Immediately jump to Order task when clicking Order More in Serve
-                      setTableSeats(prev => {
-                        const updatedSeats = { ...prev };
-                        const tableId = expandedCard.tableId;
-                        const seatNumber = expandedCard.seatNumber;
-                        const seatData = updatedSeats[tableId]?.[seatNumber];
-                        
-                        if (seatData) {
-                          updatedSeats[tableId][seatNumber] = {
-                            ...seatData,
-                            currentTaskIndex: 2, // Order task index
-                            currentTask: { ...taskFlow[2] }
-                          };
-                        }
-                        
-                        return updatedSeats;
-                      });
-                      
-                      setExpandedCard(prev => ({
-                        ...prev,
-                        currentTaskIndex: 2,
-                        currentTask: { ...taskFlow[2] }
-                      }));
-                    }}
+                    onClick={handleOrderMoreClick}
                     className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
                       orderMoreSelected 
                         ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 
@@ -3340,15 +3631,7 @@ export default function AllTables() {
                     <span className="text-xs md:text-sm font-medium">Order More</span>
                   </button>
                 )}
-                {expandedCard.currentTask.id === "3" && (
-                  <button
-                    onClick={() => setShowMenu(!showMenu)}
-                    className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
-                  >
-                    <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
-                    <span className="text-xs font-medium text-orange-700">Menu</span>
-                  </button>
-                )}
+                {/* Menu toggle removed: menu shows by default for Order */}
                 {showMenu && (
                   <button
                     onClick={() => setShowCart(true)}
@@ -3446,7 +3729,7 @@ export default function AllTables() {
                       <div className="font-medium text-sm">{item.name}</div>
                       <div className="text-xs text-foreground/60">{item.price}</div>
                       <div className="text-xs text-purple-600 font-medium">
-                        For Seat {item.seatId}
+                        For Seat {expandedCard.seat?.id || expandedCard.seatNumber}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -3479,8 +3762,6 @@ export default function AllTables() {
                   <button
                     onClick={() => {
                       newPlaceOrder();
-                      const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
-                      alert(`Order placed successfully for Seat ${expandedCard.seatNumber}${noteMsg}!`);
                     }}
                     className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 active:scale-95 transition mt-2"
                   >
@@ -3493,7 +3774,7 @@ export default function AllTables() {
         </div>
       )}
 
-      {expandedCard && expandedCard.type !== "bar" && expandedCard.type !== "bar-seat" && !expandedCard.seatNumber && (
+      {expandedCard && expandedCard.type !== "bar" && expandedCard.type !== "bar-seat" && !expandedCard.seatNumber && !expandedCard.tableId && (
         <div className="w-full h-[100dvh]">
           <div className="mx-auto h-full max-w-none md:max-w-5xl rounded-xl md:rounded-2xl border-2 border-gray-200 shadow-2xl bg-gradient-to-br from-white to-gray-50 overflow-hidden flex flex-col">
           {/* Header */}
@@ -3501,8 +3782,8 @@ export default function AllTables() {
             {/* Close */}
             <button
               onClick={() => {
-                // If this is an "All Seats" task, save the current state back to the main table
-                if (expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0) {
+                // Save the current state back to the main table
+                if (expandedCard.tableId) {
                   setRows(prev => prev.map(row => 
                     row.id === expandedCard.id 
                       ? { 
@@ -3533,8 +3814,8 @@ export default function AllTables() {
               <div className="space-y-2">
                 <div className="flex items-center gap-3 md:gap-4">
                   <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                    <div className="text-xs text-gray-600 font-medium">Table ID</div>
-                    <div className="font-mono font-bold text-sm text-gray-800">
+                    <div className="text-xs text-gray-600 font-medium">Table</div>
+                    <div className="font-semibold text-sm text-gray-800">
                       {expandedCard.id}
                       {expandedCard.seatNumber && (
                         <span className="text-blue-600 ml-1">(Seat {expandedCard.seatNumber})</span>
@@ -3542,31 +3823,13 @@ export default function AllTables() {
                     </div>
                   </div>
                   <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                    <div className="text-xs text-gray-600 font-medium">Task ID</div>
-                    <div className="font-mono font-bold text-sm text-gray-800">{expandedCard.currentTask.id}</div>
-                  </div>
-                  <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                    <div className="text-xs text-gray-600 font-medium">Task Name</div>
+                    <div className="text-xs text-gray-600 font-medium">Task</div>
                     <div className="font-semibold text-sm text-gray-800">{expandedCard.currentTask.name}</div>
                   </div>
-                  {expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0 && (
-                    <div className="bg-white/70 rounded-lg px-3 py-2 shadow-sm">
-                      <div className="text-xs text-gray-600 font-medium">Seats</div>
-                      <div className="font-semibold text-sm text-green-600">🪑 {expandedCard.selectedSeats.sort((a, b) => a - b).join(', ')}</div>
-                    </div>
-                  )}
                 </div>
                 <div className="flex items-center justify-between gap-3 -mt-4">
                   <div className="flex items-center gap-2">
-                    {expandedCard.currentTask.id === "3" && (
-                      <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-orange-200 bg-orange-50 hover:bg-orange-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
-                      >
-                        <Menu className="h-3.5 w-3.5 md:h-4 md:w-4 text-orange-600" />
-                        <span className="text-xs font-medium text-orange-700">Menu</span>
-                      </button>
-                    )}
+                    {/* Menu toggle removed: menu shows by default for Order */}
                     <button
                       onClick={() => setShowComments(true)}
                       className="h-8 md:h-11 px-3 md:px-4 rounded-lg md:rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 active:scale-95 flex items-center gap-1.5 md:gap-2 transition-all duration-200 shadow-md"
@@ -3589,26 +3852,6 @@ export default function AllTables() {
             {/* Menu Section */}
             {showMenu && (
               <div className="md:w-full border-b md:border-b-0 border-border/30 overflow-y-auto p-3 md:p-4">
-                {/* Tab Navigation */}
-                {expandedCard && expandedCard.selectedSeats && expandedCard.selectedSeats.length > 0 && (
-                  <div className="mb-4">
-                    <div className="flex flex-wrap gap-2 p-1 bg-gray-100 rounded-lg">
-                      {expandedCard.selectedSeats.map((seat) => (
-                        <button
-                          key={seat}
-                          onClick={() => setActiveOrderTab(seat.toString())}
-                          className={`px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                            activeOrderTab === seat.toString()
-                              ? 'bg-white text-blue-600 shadow-sm'
-                              : 'text-gray-600 hover:text-gray-800'
-                          }`}
-                        >
-                          Seat {seat}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Menu Content */}
                 <div className="space-y-4">
@@ -3724,8 +3967,6 @@ export default function AllTables() {
                             <button
                               onClick={() => {
                                 newPlaceOrder();
-                                const noteMsg = cartNote ? ` with note: ${cartNote}` : '';
-                                alert(`Order placed successfully${noteMsg}!`);
                               }}
                               className="w-full bg-primary text-primary-foreground py-3 px-4 rounded-xl font-medium hover:bg-primary/90 active:scale-95 transition mt-2"
                             >
@@ -3742,7 +3983,7 @@ export default function AllTables() {
             {!showMenu && (
               <div className="flex-1 p-8 md:p-6 overflow-y-auto">
                 <div className="space-y-4">
-                  {expandedCard.currentTask.id === "4" ? (
+                  {(expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") ? (
                     <div className="space-y-4">
                       {/* Order Summary Header */}
                       <div className="text-center mb-4">
@@ -3985,64 +4226,16 @@ export default function AllTables() {
                           </>
                         ) : (
                           <>
-                            {/* Split Payment - Seat Tabs */}
+                            {/* Split Payment */}
                             {(() => {
-                              // Get all occupied seats from the "All Seats" selection
-                              const occupiedSeats = expandedCard.selectedSeats || [];
-                              
-                              // Calculate total bill for "All Seats" only (from expandedCard.serveHistory)
-                              let allSeatsBill = 0;
+                              // Calculate total bill from serveHistory
+                              let totalBill = 0;
                               expandedCard?.serveHistory?.forEach(serve => {
                                 serve.items?.forEach(item => {
                                   const price = parseFloat(item.price.replace('$', ''));
-                                  allSeatsBill += price * item.quantity;
+                                  totalBill += price * item.quantity;
                                 });
                               });
-                              const billPerSeat = occupiedSeats.length > 0 ? allSeatsBill / occupiedSeats.length : 0;
-                              
-                              // Get individual seat orders and totals
-                              const itemsBySeat = {};
-                              const seatTotals = {};
-                              
-                              // Add individual seat orders (from tableSeats)
-                              if (expandedCard?.selectedSeats && expandedCard?.tableId) {
-                                expandedCard.selectedSeats.forEach(seatNumber => {
-                                  const seatData = tableSeats[expandedCard.tableId]?.[seatNumber];
-                                  if (seatData?.serveHistory) {
-                                    seatData.serveHistory.forEach(serve => {
-                                      serve.items?.forEach(item => {
-                                        const seatId = seatNumber.toString();
-                                        if (!itemsBySeat[seatId]) {
-                                          itemsBySeat[seatId] = [];
-                                        }
-                                        itemsBySeat[seatId].push({
-                                          ...item,
-                                          orderNumber: serve.orderNumber,
-                                          timestamp: serve.timestamp,
-                                          seatId: seatId
-                                        });
-                                      });
-                                    });
-                                  }
-                                });
-                              }
-                              
-                              // Calculate individual seat totals
-                              Object.keys(itemsBySeat).forEach(seatId => {
-                                seatTotals[seatId] = itemsBySeat[seatId].reduce((total, item) => {
-                                  return total + (parseFloat(item.price.replace('$', '')) * item.quantity);
-                                }, 0);
-                              });
-                              
-                              // Add "All Seats" bill split to each occupied seat
-                              occupiedSeats.forEach(seatId => {
-                                if (!seatTotals[seatId]) {
-                                  seatTotals[seatId] = 0;
-                                }
-                                seatTotals[seatId] += billPerSeat;
-                              });
-                              
-                              const seatIds = occupiedSeats.sort((a, b) => parseInt(a) - parseInt(b));
                               
                               return (
                                 <div className="space-y-4">
@@ -4236,11 +4429,11 @@ export default function AllTables() {
           {/* Footer */}
           <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-blue-50">
               <div className="flex items-center gap-2">
-              {expandedCard && expandedCard.currentTask.id === "4" && (
+              {expandedCard && (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") && (
                 <button
                   onClick={() => {
                     // Immediately jump to Order task when clicking Order More in Serve
-                    if (expandedCard && expandedCard.currentTask.id === "4") {
+                    if (expandedCard && (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE")) {
                       const idx = rows.findIndex(r => r.id === expandedCard.id);
                       if (idx !== -1) {
                         const nextRows = [...rows];
@@ -4284,14 +4477,7 @@ export default function AllTables() {
                   )}
                 </button>
               )}
-              <button
-                onClick={handleNextTask}
-                disabled={!canProceedToNextTask()}
-                className="flex-1 h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-600 hover:to-blue-700 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg font-medium"
-              >
-                <span className="text-xs md:text-sm">Next Task</span>
-                <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
-              </button>
+              {/* Next Task button intentionally removed for order flow bottom bar */}
             </div>
           </div>
 
@@ -4332,18 +4518,18 @@ export default function AllTables() {
                     <input
                       type="number"
                       min="1"
-                      max="20"
+                      max={maxSeatAddCap}
                       value={numberOfSeats}
                       onChange={(e) => {
                         const value = parseInt(e.target.value) || 1;
-                        setNumberOfSeats(Math.max(1, Math.min(20, value)));
+                        setNumberOfSeats(Math.max(1, Math.min(maxSeatAddCap, value)));
                       }}
                       className="w-full h-full text-4xl font-bold text-center bg-transparent outline-none"
                     />
                   </div>
                   
                   <button
-                    onClick={() => setNumberOfSeats(Math.min(20, numberOfSeats + 1))}
+                    onClick={() => setNumberOfSeats(Math.min(maxSeatAddCap, numberOfSeats + 1))}
                     className="w-12 h-12 rounded-xl bg-gray-200 hover:bg-gray-300 active:scale-95 transition-all duration-200 flex items-center justify-center font-bold text-xl"
                   >
                     <Plus className="h-5 w-5" />
@@ -4485,7 +4671,7 @@ export default function AllTables() {
 
               {/* Seat Grid */}
               <div className="grid grid-cols-2 gap-4 mb-6">
-                {[1, 2, 3, 4].map((seatNumber) => (
+                {(seatAddOptions.length > 0 ? seatAddOptions : [1, 2, 3, 4]).map((seatNumber) => (
                   <button
                     key={seatNumber}
                     onClick={() => handleSeatSelectionToggle(seatNumber)}
@@ -4557,13 +4743,20 @@ export default function AllTables() {
                 <div className="flex gap-3">
                   <button
                     onClick={() => {
-                      // Get current selected seats and set them as already selected
-                      const currentTable = rows.find(row => row.id === selectedTableForSeats.id);
-                      const currentSelectedSeats = currentTable?.selectedSeats || [];
-                      setSelectedSeatsForTable(currentSelectedSeats);
-                      
-                      // Show seat selection popup to add more seats
-                      setShowSeatSelectionPopup(true);
+                      if (!selectedTableForSeats) return;
+                      setIsAddingSeats(true);
+                      const tableId = selectedTableForSeats.id;
+                      const tasks = activeTasksForTable[tableId] || [];
+                      const existingSeats = Array.from(new Set(
+                        tasks.map(t => t.extensionsData?.seat_id)
+                          .filter(s => s && s !== '99')
+                          .map(s => parseInt(s, 10))
+                      ));
+                      const remaining = Math.max(0, 20 - existingSeats.length);
+                      setMaxSeatAddCap(remaining);
+                      setNumberOfSeats(Math.min(4, Math.max(1, remaining)));
+                      setTableForSeatNumberPrompt(selectedTableForSeats);
+                      setShowSeatNumberPrompt(true);
                     }}
                     className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium shadow-md"
                   >
@@ -4571,9 +4764,10 @@ export default function AllTables() {
                   </button>
                   
                   <button
-                    onClick={() => {
+                    onClick={async () => {
                       // Reset all seat data for this table
                       const tableId = selectedTableForSeats.id;
+                      await clearTableBackend(tableId);
                       setTableSeats(prev => {
                         const updatedSeats = { ...prev };
                         if (updatedSeats[tableId]) {
@@ -4632,6 +4826,13 @@ export default function AllTables() {
                       // Reset selected seats for this table
                       setSelectedSeatsForTable([]);
                       
+                      // Clear tableSeats state for this table
+                      setTableSeats(prev => {
+                        const updated = { ...prev };
+                        delete updated[tableId];
+                        return updated;
+                      });
+                      
                       // Return to main tables page to start fresh
                       setShowSeatPageView(false);
                       setSelectedTableForSeats(null);
@@ -4651,84 +4852,58 @@ export default function AllTables() {
 
             {/* Table Seats Grid */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-6">
-              {/* All Seats Card */}
-              <div 
-                onClick={() => {
-                  // Update the table's selectedSeats property to remember the selection
-                  const finalSelectedSeats = selectedSeatsForTable.length > 0 ? selectedSeatsForTable : [1, 2, 3, 4];
-                  setRows(prev => prev.map(row => 
-                    row.id === selectedTableForSeats.id 
-                      ? { ...row, selectedSeats: finalSelectedSeats }
-                      : row
-                  ));
-                  
-                  // Get the current table state from rows array
-                  const currentTable = rows.find(row => row.id === selectedTableForSeats.id);
-                  
-                  // Create expanded card for all seats of this table
-                  setExpandedCard({
-                    id: selectedTableForSeats.id,
-                    type: "table",
-                    tableId: selectedTableForSeats.id,
-                    currentTaskIndex: currentTable?.currentTaskIndex || 0,
-                    currentTask: { ...(currentTable?.currentTask || taskFlow[0]) },
-                    minutes: currentTable?.minutes || 0,
-                    status: currentTable?.status || "Available",
-                    serveHistory: currentTable?.serveHistory || [],
-                    selectedSeats: finalSelectedSeats
-                  });
-                  setShowSeatPageView(false);
-                }}
-                className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gradient-to-br from-indigo-50 to-purple-100 border-indigo-200 hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer shadow-lg"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-foreground/60 font-medium">All Seats</div>
-                    <div className="font-mono font-bold text-lg text-gray-800">🪑 All Seats</div>
-                    <div className="text-xs text-indigo-600 font-medium mt-1">
-                      Manage All Seats
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-foreground/60 font-medium">Table</div>
-                    <div className="text-xs font-semibold px-2 py-1 rounded-full bg-indigo-100 text-indigo-800">
-                      {selectedTableForSeats.id}
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="space-y-2 mt-4">
-                  <div>
-                    <div className="text-xs text-foreground/60 font-medium">Current Task</div>
-                    <div className="font-semibold text-sm text-gray-800">{rows.find(row => row.id === selectedTableForSeats.id)?.currentTask?.name || "Assign Table"}</div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-3 h-3 text-gray-500" />
-                    <span className="text-xs text-gray-600">{rows.find(row => row.id === selectedTableForSeats.id)?.minutes || 0} min</span>
-                  </div>
-                </div>
-                
-                <div className="pt-2 border-t border-gray-200 mt-3">
-                  <div className="text-xs text-gray-600">
-                    Click to manage all seats together
-                  </div>
-                </div>
-              </div>
 
-              {/* Show only selected seats (excluding "All Seats" which is seat 1) */}
-              {(selectedSeatsForTable.length > 0 ? selectedSeatsForTable.filter(s => s > 1) : [2, 3, 4, 5]).map((seatId) => {
-                // Get individual seat data
-                const seatData = tableSeats[selectedTableForSeats.id]?.[seatId];
+              {/* Fetch seats from backend tasks */}
+              {(() => {
+                // Get active tasks for this table from backend
+                const tableId = selectedTableForSeats.id;
+                const tasks = activeTasksForTable[tableId] || [];
                 
-                // Display seat number (subtract 1 since seat 1 is "All Seats")
-                const displaySeatNumber = seatId - 1;
+                // Extract unique seat IDs from backend tasks
+                const seatIds = [...new Set(tasks.map(task => task.extensionsData?.seat_id).filter(Boolean))].sort();
+                
+                // If no backend tasks, use selectedSeatsForTable as fallback
+                const seatsToRender = seatIds.length > 0 ? seatIds : selectedSeatsForTable;
+                
+                return seatsToRender.map((seatId) => {
+                  // Get individual seat data from backend tasks
+                  const seatTasks = tasks.filter(task => task.extensionsData?.seat_id === seatId);
+                  // Prefer ACTIVE tasks, then sort by updatedAt/createdAt desc to get the latest
+                  const toMillis = (arr) => Array.isArray(arr) && arr.length >= 6 ? Date.UTC(arr[0], (arr[1]||1)-1, arr[2]||1, arr[3]||0, arr[4]||0, arr[5]||0) : 0;
+                  const activeTasks = seatTasks.filter(t => t.extensionsData?.task_status === 'ACTIVE');
+                  const sortedActive = activeTasks.sort((a,b) => (toMillis(b.updatedAt||b.createdAt) - toMillis(a.updatedAt||a.createdAt)));
+                  const sortedAll = seatTasks.sort((a,b) => (toMillis(b.updatedAt||b.createdAt) - toMillis(a.updatedAt||a.createdAt)));
+                  const latestTask = sortedActive[0] || sortedAll[0];
+                  
+                  // Build seat data from backend task
+                  const seatData = latestTask ? {
+                    id: seatId,
+                    currentTask: {
+                      id: latestTask.title || "order",
+                      name: latestTask.title === "serve" ? "Serve" : latestTask.title === "order" ? "Order" : latestTask.title === "payment" ? "Payment" : (latestTask.title || "Order")
+                    },
+                    currentTaskUuid: latestTask.taskUuid,
+                    createdAt: latestTask.createdAt
+                  } : tableSeats[selectedTableForSeats.id]?.[seatId];
+                
+                // Debug logging
+                if (seatId === 99) {
+                  console.log('=== All Seats Debug ===');
+                  console.log('Seat ID:', seatId);
+                  console.log('Selected Table:', selectedTableForSeats);
+                  console.log('Table Seats:', tableSeats[selectedTableForSeats.id]);
+                  console.log('Seat Data for ID 99:', seatData);
+                  console.log('Selected Seats For Table:', selectedSeatsForTable);
+                }
+                
+                // Display seat number (seat 99 is "All Seats", others are Seat 1, 2, 3, etc.)
+                const displaySeatNumber = seatId === 99 ? 'All Seats' : seatId;
                 
                 if (!seatData) {
                   return (
                     <div key={seatId} className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gray-100">
                       <div className="text-center text-gray-500">
-                        <div className="font-mono font-bold text-lg">Seat {displaySeatNumber}</div>
+                        <div className="font-mono font-bold text-lg">{displaySeatNumber === 'All Seats' ? 'All Seats' : `Seat ${displaySeatNumber}`}</div>
                         <div className="text-sm">Loading...</div>
                       </div>
                     </div>
@@ -4740,67 +4915,36 @@ export default function AllTables() {
                 const backgroundClass = getTableBackgroundClass(seatData.currentTask.id);
                 const isSelected = seatData.selectedSeats && seatData.selectedSeats.includes(seatId);
                 
+                // Debug logging for seat ID 99
+                if (seatId === 99) {
+                  console.log('=== All Seats Rendering Debug ===');
+                  console.log('Background Class:', backgroundClass);
+                  console.log('Is Selected:', isSelected);
+                  console.log('Seat Data Selected Seats:', seatData.selectedSeats);
+                  console.log('Current Task ID:', seatData.currentTask.id);
+                }
+                
                 return (
                   <div 
                     key={seatId} 
                     onClick={() => handleSeatPageSeatClick(seatId)}
                     className={`rounded-xl md:rounded-2xl border-2 p-4 md:p-6 space-y-3 md:space-y-4 ${backgroundClass} shadow-lg hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-xs text-foreground/60 font-medium">Seat ID</div>
-                        <div className="font-mono font-bold text-lg text-gray-800">Seat {displaySeatNumber}</div>
-                        {isSelected && (
-                          <div className="text-xs text-green-600 font-medium mt-1">
-                            ✓ Selected
+                    <div className="text-center space-y-2">
+                      <div className="font-bold text-lg text-gray-800">
+                        {seatId === 99 ? 'All Seats' : `Seat ${seatId}`}
                           </div>
-                        )}
+                      <div className="font-semibold text-md text-gray-700">
+                        {seatData.currentTask.name}
                       </div>
-                      <div className="text-right">
-                        <div className="text-xs text-foreground/60 font-medium">Status</div>
-                        <div className={`text-xs font-semibold px-2 py-1 rounded-full ${
-                          seatData.status === "Available" ? "bg-green-100 text-green-800" :
-                          seatData.status === "In Progress" ? "bg-blue-100 text-blue-800" :
-                          seatData.status === "Pending" ? "bg-yellow-100 text-yellow-800" :
-                          "bg-gray-100 text-gray-800"
-                        }`}>
-                          {seatData.status}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <div>
-                        <div className="text-xs text-foreground/60 font-medium">Current Task</div>
-                        <div className="font-semibold text-sm text-gray-800">{seatData.currentTask.name}</div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Clock className="w-3 h-3 text-gray-500" />
-                        <span className="text-xs text-gray-600">{seatData.minutes} min</span>
-                      </div>
-                    </div>
-                    
-                    <div className="pt-2 border-t border-gray-200">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-gray-600">Task Status:</span>
-                        <span className={`text-xs font-medium px-2 py-1 rounded-full ${
-                          seatData.currentTask.currentStatus === "Pending" ? "bg-yellow-100 text-yellow-800" :
-                          seatData.currentTask.currentStatus === "Assigned" ? "bg-blue-100 text-blue-800" :
-                          seatData.currentTask.currentStatus === "Completed" ? "bg-green-100 text-green-800" :
-                          seatData.currentTask.currentStatus === "Placed" ? "bg-orange-100 text-orange-800" :
-                          seatData.currentTask.currentStatus === "Served" ? "bg-red-100 text-red-800" :
-                          seatData.currentTask.currentStatus === "Empty" ? "bg-gray-100 text-gray-800" :
-                          seatData.currentTask.currentStatus === "Seated" ? "bg-green-100 text-green-800" :
-                          "bg-green-100 text-green-800"
-                        }`}>
-                          {seatData.currentTask.currentStatus}
-                        </span>
+                      <div className="text-xs text-gray-500">
+                        {new Date().toISOString()}
                       </div>
                     </div>
                   </div>
                 );
-              })}
+                });
+              })()}
             </div>
           </div>
         )}
@@ -4836,8 +4980,7 @@ export default function AllTables() {
                   { id: "S2", task: "Pre Meal", color: "bg-blue-100 border-blue-300 text-blue-800" },
                   { id: "S3", task: "Order", color: "bg-blue-100 border-blue-300 text-blue-800" },
                   { id: "S4", task: "Serve", color: "bg-blue-100 border-blue-300 text-blue-800" },
-                  { id: "S5", task: "Post Meal", color: "bg-blue-100 border-blue-300 text-blue-800" },
-                  { id: "S6", task: "Payment", color: "bg-yellow-100 border-yellow-300 text-yellow-800" }
+                  { id: "S5", task: "Payment", color: "bg-yellow-100 border-yellow-300 text-yellow-800" }
                 ].map((seat) => (
                   <div 
                     key={seat.id} 

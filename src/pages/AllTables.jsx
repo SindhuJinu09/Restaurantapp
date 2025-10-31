@@ -1,5 +1,12 @@
 ﻿import React, { useState, useEffect, useRef } from "react";
 import { Clock, Menu, ArrowRight, ArrowLeft, Plus, Minus, ShoppingCart, X, MessageSquare, Bell, User, CreditCard, Smartphone, DollarSign, CheckCircle, ChevronDown } from "lucide-react";
+import TableGrid from "../components/TableGrid";
+import BarSeatCart from "../components/BarSeatCart";
+import SeatPageGrid from "../components/SeatPageGrid";
+import SeatDetail from "../components/SeatDetail";
+import SeatHeader from "../components/SeatHeader";
+import SeatNumberPrompt from "../components/SeatNumberPrompt";
+import SeatSelectionPopup from "../components/SeatSelectionPopup";
 import { useNavigate } from "react-router-dom";
 import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, updateFullTask, TASK_STATUS_MAPPING, menuService } from "../services/taskService";
 
@@ -1892,6 +1899,68 @@ export default function AllTables() {
     }
   };
 
+  // Update single item's served status in backend (SERVED when true, ORDERED when false)
+  const markServeItemStatus = async (orderIndex, itemIndex, isServed) => {
+    try {
+      if (!expandedCard) return;
+      const tableId = expandedCard.tableId || expandedCard.seat?.tableId || expandedCard.id;
+      const seatId = (expandedCard.seat?.id ?? expandedCard.seatNumber)?.toString();
+      if (!tableId || !seatId) return;
+
+      const tasks = activeTasksForTable[tableId] || [];
+      const serveTask = tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId && t.extensionsData?.task_status === 'ACTIVE')
+        || tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId);
+      if (!serveTask?.taskUuid) return;
+
+      // Find the specific item inside extensionsData.orderItems using the same grouping logic as newGetServeOrders
+      const allItems = Array.isArray(serveTask.extensionsData?.orderItems) ? [...serveTask.extensionsData.orderItems] : [];
+      const groups = new Map();
+      for (const it of allItems) {
+        const ts = it.orderTimestamp || 'UNKNOWN';
+        if (!groups.has(ts)) groups.set(ts, []);
+        groups.get(ts).push(it);
+      }
+      const sortedTimestamps = Array.from(groups.keys()).sort((a, b) => {
+        if (a === 'UNKNOWN') return 1;
+        if (b === 'UNKNOWN') return -1;
+        return new Date(a).getTime() - new Date(b).getTime();
+      });
+      const tsKey = sortedTimestamps[orderIndex];
+      const targetGroup = groups.get(tsKey) || [];
+      const target = targetGroup[itemIndex];
+      if (!target) return;
+
+      // Locate in the flat list by a robust predicate
+      const idx = allItems.findIndex(it => (it.orderTimestamp || 'UNKNOWN') === (target.orderTimestamp || 'UNKNOWN') && it.id === target.id && (it.seatId || seatId) === (target.seatId || seatId));
+      if (idx === -1) return;
+
+      const updatedItems = [...allItems];
+      updatedItems[idx] = {
+        ...updatedItems[idx],
+        orderStatus: isServed ? 'SERVED' : 'ORDERED',
+        served: !!isServed
+      };
+
+      await updateFullTask(serveTask.taskUuid, {
+        title: serveTask.title || 'serve',
+        description: serveTask.description || 'Serve task',
+        status: 'IN_PROGRESS',
+        dueAt: '2025-12-31T15:00:00',
+        extensionsData: {
+          ...(serveTask.extensionsData || {}),
+          orderItems: updatedItems
+        }
+      });
+
+      await refreshTasksForTable(tableId);
+    } catch (e) {
+      console.error('Failed to update item serve status:', e);
+    }
+  };
+
+  // Backwards-compatible helper
+  const markServeItemAsServed = async (orderIndex, itemIndex) => markServeItemStatus(orderIndex, itemIndex, true);
+
 
   const calculateOrderTotal = () => {
     let total = 0;
@@ -2437,48 +2506,17 @@ export default function AllTables() {
             >
               Clear All Tables
             </button>
-          </div>
-        )}
+                      </div>
+                    )}
         
         {/* Cards Grid */}
         {!expandedCard && !showSeatPageView && (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            {filteredRows.map((row) => {
-              // Simple color scheme: blue by default, green if table has ACTIVE tasks
-              const hasActive = (activeTasksForTable[row.id] || []).length > 0;
-              const backgroundClass = hasActive
-                ? "bg-gradient-to-br from-green-50 to-green-100 border-green-200 hover:shadow-green-200/50"
-                : "bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 hover:shadow-blue-200/50";
-              return (
-              <div 
-                key={row.id} 
-                className={`rounded-xl md:rounded-2xl border-2 p-3 md:p-4 space-y-2 md:space-y-4 ${backgroundClass} cursor-pointer hover:shadow-xl active:scale-[0.98] transition-all duration-200 text-xs`}
-                onClick={() => handleTableClick(row)}
-              >
-                  <div>
-                  <div className="font-mono font-bold text-sm text-gray-800">Table {row.id}</div>
-                  {(() => {
-                    const tasks = activeTasksForTable[row.id] || [];
-                    const seatIds = Array.from(new Set(
-                      tasks
-                        .map(t => t.extensionsData?.seat_id)
-                        .filter(s => s !== undefined && s !== null)
-                    ));
-                    seatIds.sort((a, b) => {
-                      const an = parseInt(a, 10); const bn = parseInt(b, 10);
-                      if (an === 99) return 1; if (bn === 99) return -1; return an - bn;
-                    });
-                    return seatIds.length > 0 ? (
-                      <div className="text-xs text-green-600 font-medium mt-1">
-                        🪑 Seats {seatIds.join(', ')}
-                      </div>
-                    ) : null;
-                  })()}
-                </div>
-              </div>
-              );
-            })}
-          </div>
+          <TableGrid
+            rows={rows}
+            filteredRows={filteredRows}
+            activeTasksForTable={activeTasksForTable}
+            onTableClick={handleTableClick}
+          />
         )}
       {expandedCard && expandedCard.type === "bar" && (
         <div className="w-full h-[100dvh]">
@@ -3024,43 +3062,7 @@ export default function AllTables() {
                     )}
                   </button>
                 )}
-                {/* Next Task button removed in bar-seat footer */}
-                {false && (
-                <button
-                  onClick={() => {
-                    // Handle next task for bar seat
-                    if (selectedBarSeat) {
-                      const updatedSeats = barSeats.map(seat => {
-                        if (seat.id === selectedBarSeat.id) {
-                          if (seat.currentTaskIndex < taskFlow.length - 1) {
-                            seat.currentTaskIndex++;
-                            seat.currentTask = { ...taskFlow[seat.currentTaskIndex] };
-                            seat.status = "Pending";
-                          } else {
-                            seat.currentTaskIndex = 0;
-                            seat.currentTask = { ...taskFlow[0] };
-                            seat.status = "Pending";
-                            seat.serveHistory = [];
-                          }
-                        }
-                        return seat;
-                      });
-                      setBarSeats(updatedSeats);
-                      setSelectedBarSeat(updatedSeats.find(s => s.id === selectedBarSeat.id));
-                      setExpandedCard({ 
-                        id: `BAR-SEAT-${selectedBarSeat.id}`, 
-                        type: "bar-seat", 
-                        seat: updatedSeats.find(s => s.id === selectedBarSeat.id),
-                        selectedSeats: [selectedBarSeat.id]
-                      });
-                    }
-                  }}
-                  className="flex-1 h-8 md:h-11 px-4 md:px-6 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 text-white hover:from-purple-600 hover:to-purple-700 active:scale-95 transition-all duration-200 flex items-center justify-center gap-2 shadow-lg font-medium"
-                >
-                  <span className="text-xs md:text-sm">Next Task</span>
-                  <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
-                </button>
-                )}
+                {/* Next Task button removed in bar-seat footer - dead code removed */}
               </div>
             </div>
           </div>
@@ -3069,74 +3071,16 @@ export default function AllTables() {
 
       {/* Bar Seat Cart Bottom Sheet */}
       {(expandedCard && expandedCard.type === "bar-seat" && showMenu && showCart) && (
-        <div className="fixed inset-0 z-50">
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={() => setShowCart(false)}
-          />
-          <div className="absolute bottom-0 left-0 right-0 mx-auto max-w-screen-md md:max-w-2xl bg-card border border-border/50 rounded-t-2xl shadow-xl p-4 md:p-6 max-h-[65vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold">Cart - Seat {expandedCard.seat.id}</h3>
-              <button
-                onClick={() => setShowCart(false)}
-                className="h-8 w-8 rounded-md border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            {newGetCartItems().length === 0 ? (
-              <p className="text-foreground/60 text-sm py-8 text-center">No items in cart</p>
-            ) : (
-              <div className="space-y-3">
-                {newGetCartItems().map((item, index) => (
-                  <div key={`${item.id}-${item.seatId}-${index}`} className="flex items-center justify-between py-3 border-b border-border/30 last:border-b-0">
-                    <div className="flex-1">
-                      <div className="font-medium text-sm">{item.name}</div>
-                      <div className="text-xs text-foreground/60">{item.price}</div>
-                      <div className="text-xs text-purple-600 font-medium">
-                        For Seat {expandedCard.seat?.id || expandedCard.seatNumber}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => newUpdateCartItem(item.id, -1, item.seatId)}
-                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
-                      >
-                        <Minus className="h-3 w-3" />
-                      </button>
-                      <span className="min-w-[1.5rem] text-center text-sm font-medium">
-                        {item.quantity}
-                      </span>
-                      <button
-                        onClick={() => newUpdateCartItem(item.id, 1, item.seatId)}
-                        className="h-6 w-6 rounded-full border border-border/50 bg-background hover:bg-muted flex items-center justify-center"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                <div className="pt-3 border-t border-border/30 space-y-0">
-                  <input
-                    type="text"
-                    value={cartNote}
-                    onChange={(e) => setCartNote(e.target.value)}
-                    placeholder="Add a note (e.g., no onions)"
-                    className="w-full h-9 px-3 rounded-lg border border-border/50 bg-card text-xs outline-none focus:ring-2 focus:ring-primary/30 mt-0 mb-1"
-                  />
-                  <button
-                    onClick={() => {
-                      newPlaceOrder();
-                    }}
-                    className="w-full bg-purple-600 text-white py-3 px-4 rounded-xl font-medium hover:bg-purple-700 active:scale-95 transition mt-2"
-                  >
-                    Place Order
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <BarSeatCart
+          expandedCard={expandedCard}
+          open={true}
+          onClose={() => setShowCart(false)}
+          getCartItems={newGetCartItems}
+          updateCartItem={newUpdateCartItem}
+          cartNote={cartNote}
+          setCartNote={setCartNote}
+          onPlaceOrder={() => newPlaceOrder()}
+        />
       )}
 
       {expandedCard && expandedCard.seatNumber && expandedCard.tableId && (
@@ -3311,8 +3255,10 @@ export default function AllTables() {
                                       <input
                                         type="checkbox"
                                         checked={item.served || false}
-                                        onChange={(e) => {
-                                          newUpdateItemServed(orderIndex, itemIndex, e.target.checked);
+                                        onChange={async (e) => {
+                                          const isChecked = e.target.checked;
+                                          newUpdateItemServed(orderIndex, itemIndex, isChecked);
+                                          await markServeItemStatus(orderIndex, itemIndex, isChecked);
                                         }}
                                         className="w-5 h-5 text-purple-600 bg-gray-100 border-gray-300 rounded focus:ring-purple-500 focus:ring-2"
                                       />
@@ -3345,19 +3291,20 @@ export default function AllTables() {
                                         <option value="Ready">Ready</option>
                                       </select>
                                       
-                                      {/* Price */}
-                                      <div className="text-sm font-bold text-gray-800">
-                                        {item.price}
-                                      </div>
+                                      {/* Price removed from serve summary */}
                                       
-                                      {/* Served Status */}
-                                      {item.served && (
-                                        <div className="ml-2">
+                                      {/* Served Status - reserved space */}
+                                      <div className="ml-2 w-24 flex justify-end">
+                                        {item.served ? (
                                           <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                                             ✓ Served
                                           </span>
-                                        </div>
-                                      )}
+                                        ) : (
+                                          <span className="invisible inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            ✓ Served
+                                          </span>
+                                        )}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -3646,6 +3593,7 @@ export default function AllTables() {
                     )}
                   </button>
                 )}
+                {!(expandedCard.currentTask.id === "3" || expandedCard.currentTask.id === "order" || expandedCard.currentTask.type === "ORDER" || showMenu) && (
                 <button
                   onClick={() => {
                     // Handle next task for table seat
@@ -3696,6 +3644,7 @@ export default function AllTables() {
                   <span className="text-xs md:text-sm">Next Task</span>
                   <ArrowRight className="h-4 w-4 md:h-5 md:w-5" />
                 </button>
+                )}
               </div>
             </div>
           </div>
@@ -4054,19 +4003,20 @@ export default function AllTables() {
                                         <option value="Ready">Ready</option>
                                       </select>
                                       
-                                      {/* Price */}
-                                      <div className="text-sm font-bold text-gray-800">
-                                        {item.price}
-                                                </div>
+                                      {/* Price removed from serve summary */}
                                       
-                                      {/* Served Status */}
-                                                {item.served && (
-                                        <div className="ml-2">
-                                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                    ✓ Served
-                                                  </span>
-                              </div>
-                            )}
+                                      {/* Served Status - reserved space */}
+                                      <div className="ml-2 w-24 flex justify-end">
+                                        {item.served ? (
+                                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            ✓ Served
+                                          </span>
+                                        ) : (
+                                          <span className="invisible inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                            ✓ Served
+                                          </span>
+                                        )}
+                                      </div>
                                   </div>
                                 ))}
                               </div>
@@ -4485,83 +4435,18 @@ export default function AllTables() {
         </div>
         )}
 
-        {/* Seat Number Prompt Modal */}
-        {showSeatNumberPrompt && tableForSeatNumberPrompt && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div 
-              className="absolute inset-0 bg-black/60"
-              onClick={() => {
+        <SeatNumberPrompt
+          open={showSeatNumberPrompt && !!tableForSeatNumberPrompt}
+          tableId={tableForSeatNumberPrompt?.id}
+          numberOfSeats={numberOfSeats}
+          setNumberOfSeats={setNumberOfSeats}
+          maxSeatAddCap={maxSeatAddCap}
+          onCancel={() => {
                 setShowSeatNumberPrompt(false);
                 setTableForSeatNumberPrompt(null);
               }}
-            />
-            <div className="relative bg-white rounded-3xl shadow-2xl p-8 w-[90%] max-w-md z-10">
-              <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
-                How Many Seats?
-              </h2>
-              
-              <div className="mb-6">
-                <p className="text-center text-gray-600 mb-4">
-                  Table {tableForSeatNumberPrompt.id}
-                </p>
-                
-                {/* Number Input */}
-                <div className="flex items-center justify-center gap-4">
-                  <button
-                    onClick={() => setNumberOfSeats(Math.max(1, numberOfSeats - 1))}
-                    className="w-12 h-12 rounded-xl bg-gray-200 hover:bg-gray-300 active:scale-95 transition-all duration-200 flex items-center justify-center font-bold text-xl"
-                  >
-                    <Minus className="h-5 w-5" />
-                  </button>
-                  
-                  <div className="w-32 h-16 rounded-xl border-2 border-blue-500 bg-blue-50 flex items-center justify-center">
-                    <input
-                      type="number"
-                      min="1"
-                      max={maxSeatAddCap}
-                      value={numberOfSeats}
-                      onChange={(e) => {
-                        const value = parseInt(e.target.value) || 1;
-                        setNumberOfSeats(Math.max(1, Math.min(maxSeatAddCap, value)));
-                      }}
-                      className="w-full h-full text-4xl font-bold text-center bg-transparent outline-none"
-                    />
-                  </div>
-                  
-                  <button
-                    onClick={() => setNumberOfSeats(Math.min(maxSeatAddCap, numberOfSeats + 1))}
-                    className="w-12 h-12 rounded-xl bg-gray-200 hover:bg-gray-300 active:scale-95 transition-all duration-200 flex items-center justify-center font-bold text-xl"
-                  >
-                    <Plus className="h-5 w-5" />
-                  </button>
-                </div>
-                
-                <p className="text-center text-sm text-gray-500 mt-3">
-                  Number of seats (1-20)
-                </p>
-              </div>
-              
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowSeatNumberPrompt(false);
-                    setTableForSeatNumberPrompt(null);
-                  }}
-                  className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleConfirmSeatNumber}
-                  className="flex-1 py-3 px-4 rounded-xl bg-blue-500 text-white hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium shadow-lg"
-                >
-                  Create {numberOfSeats} Seat{numberOfSeats !== 1 ? 's' : ''}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+          onConfirm={handleConfirmSeatNumber}
+        />
 
         {/* Seat Selection Modal */}
         {showSeatSelection && (
@@ -4648,304 +4533,114 @@ export default function AllTables() {
           </div>
         )}
 
-        {/* Table Seat Selection Popup */}
-        {showSeatSelectionPopup && selectedTableForSeats && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div 
-              className="absolute inset-0 bg-black/60"
-              onClick={() => {
-                setShowSeatSelectionPopup(false);
-                setSelectedSeatsForTable([]);
-                setSelectedTableForSeats(null);
-              }}
-            />
-            <div className="relative bg-white rounded-2xl p-6 md:p-8 max-w-lg w-full mx-4 shadow-2xl">
-              <div className="text-center mb-6">
-                <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-2">
-                  Select Seats for Table {selectedTableForSeats.id}
-                </h2>
-                <p className="text-sm text-gray-600">
-                  Choose which seats to manage for this table
-                </p>
-              </div>
-
-              {/* Seat Grid */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                {(seatAddOptions.length > 0 ? seatAddOptions : [1, 2, 3, 4]).map((seatNumber) => (
-                  <button
-                    key={seatNumber}
-                    onClick={() => handleSeatSelectionToggle(seatNumber)}
-                    className={`p-4 rounded-xl border-2 transition-all duration-200 font-semibold ${
-                      selectedSeatsForTable.includes(seatNumber)
-                        ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-lg scale-105'
-                        : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700 hover:border-gray-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-center">
-                      <span className="text-2xl mr-2">🪑</span>
-                      <span>Seat {seatNumber}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              {/* Selected Seats Summary */}
-              {selectedSeatsForTable.length > 0 && (
-                <div className="mb-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-                  <p className="text-sm font-medium text-blue-800">
-                    Selected Seats: {selectedSeatsForTable.sort((a, b) => a - b).join(', ')}
-                  </p>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowSeatSelectionPopup(false);
-                    setSelectedSeatsForTable([]);
-                    setSelectedTableForSeats(null);
-                  }}
-                  className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleConfirmSeatSelection}
-                  className="flex-1 py-3 px-4 rounded-xl bg-blue-500 text-white hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium"
-                >
-                  Continue ({selectedSeatsForTable.length > 0 ? selectedSeatsForTable.length : 4} seats)
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <SeatSelectionPopup
+          open={showSeatSelectionPopup && !!selectedTableForSeats}
+          tableId={selectedTableForSeats?.id}
+          selectedSeats={selectedSeatsForTable}
+          onToggleSeat={handleSeatSelectionToggle}
+          onCancel={() => {
+            setShowSeatSelectionPopup(false);
+            setSelectedSeatsForTable([]);
+            setSelectedTableForSeats(null);
+          }}
+          onContinue={handleConfirmSeatSelection}
+          options={seatAddOptions.length > 0 ? seatAddOptions : [1, 2, 3, 4]}
+        />
 
         {/* Seat Page View */}
         {showSeatPageView && selectedTableForSeats && (
           <div className="px-3 md:px-4 py-3">
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <button 
-                  onClick={() => setShowSeatPageView(false)}
-                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-800">{selectedTableForSeats.id}</h2>
-                  <p className="text-sm text-gray-600">Table Seat Management</p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-3">
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      if (!selectedTableForSeats) return;
-                      setIsAddingSeats(true);
-                      const tableId = selectedTableForSeats.id;
-                      const tasks = activeTasksForTable[tableId] || [];
-                      const existingSeats = Array.from(new Set(
-                        tasks.map(t => t.extensionsData?.seat_id)
-                          .filter(s => s && s !== '99')
-                          .map(s => parseInt(s, 10))
-                      ));
-                      const remaining = Math.max(0, 20 - existingSeats.length);
-                      setMaxSeatAddCap(remaining);
-                      setNumberOfSeats(Math.min(4, Math.max(1, remaining)));
-                      setTableForSeatNumberPrompt(selectedTableForSeats);
-                      setShowSeatNumberPrompt(true);
-                    }}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 active:scale-95 transition-all duration-200 font-medium shadow-md"
-                  >
-                    Add Seat
-                  </button>
-                  
-                  <button
-                    onClick={async () => {
-                      // Reset all seat data for this table
-                      const tableId = selectedTableForSeats.id;
-                      await clearTableBackend(tableId);
-                      setTableSeats(prev => {
-                        const updatedSeats = { ...prev };
-                        if (updatedSeats[tableId]) {
-                          // Reset all seats to initial state (dynamically based on actual seats)
-                          Object.keys(updatedSeats[tableId]).forEach(seatId => {
-                            updatedSeats[tableId][seatId] = {
-                              ...updatedSeats[tableId][seatId],
-                              currentTaskIndex: 0,
-                              currentTask: { ...taskFlow[0] },
-                              minutes: 0,
-                              status: "Pending",
-                              orderMoreNext: false,
-                              serveHistory: []
-                            };
-                          });
-                        }
-                        return updatedSeats;
-                      });
-                      
-                      // Reset table carts for this table (dynamically based on actual seats)
-                      setTableCarts(prev => {
-                        const updatedCarts = { ...prev };
-                        const currentSeats = tableSeats[tableId];
-                        if (currentSeats) {
-                          Object.keys(currentSeats).forEach(seatId => {
-                            const seatKey = `${tableId}-S${seatId}`;
-                            updatedCarts[seatKey] = [];
-                          });
-                        }
-                        return updatedCarts;
-                      });
-                      
-                      // Reset table's selectedSeats property and taskflow state
-                      setRows(prev => prev.map(row => 
-                        row.id === tableId 
-                          ? { 
-                              ...row, 
-                              selectedSeats: [],
-                              currentTaskIndex: 0,
-                              currentTask: { ...taskFlow[0] },
-                              minutes: 0,
-                              status: "Available",
-                              serveHistory: []
-                            }
-                          : row
-                      ));
-                      
-                      // Reset other states
-                      setQuantities({});
-                      setCartNote('');
-                      setShowMenu(false);
-                      setShowCart(false);
-                      setShowComments(false);
-                      setActiveOrderTab("1");
-                      
-                      // Reset selected seats for this table
-                      setSelectedSeatsForTable([]);
-                      
-                      // Clear tableSeats state for this table
-                      setTableSeats(prev => {
-                        const updated = { ...prev };
-                        delete updated[tableId];
-                        return updated;
-                      });
-                      
-                      // Return to main tables page to start fresh
-                      setShowSeatPageView(false);
-                      setSelectedTableForSeats(null);
-                    }}
-                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 active:scale-95 transition-all duration-200 font-medium shadow-md"
-                  >
-                    Clear Table
-                  </button>
-                </div>
-                
-                <div className="text-right">
-                  <p className="text-sm font-medium text-gray-700">Current Task</p>
-                  <p className="text-lg font-bold text-gray-800">{rows.find(row => row.id === selectedTableForSeats.id)?.currentTask?.name || "Assign Table"}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Table Seats Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-6">
-
-              {/* Fetch seats from backend tasks */}
-              {(() => {
-                // Get active tasks for this table from backend
+            <SeatHeader
+              tableId={selectedTableForSeats.id}
+              onBack={() => setShowSeatPageView(false)}
+              onAddSeat={() => {
+                if (!selectedTableForSeats) return;
+                setIsAddingSeats(true);
                 const tableId = selectedTableForSeats.id;
                 const tasks = activeTasksForTable[tableId] || [];
-                
-                // Extract unique seat IDs from backend tasks
-                const seatIds = [...new Set(tasks.map(task => task.extensionsData?.seat_id).filter(Boolean))].sort();
-                
-                // If no backend tasks, use selectedSeatsForTable as fallback
-                const seatsToRender = seatIds.length > 0 ? seatIds : selectedSeatsForTable;
-                
-                return seatsToRender.map((seatId) => {
-                  // Get individual seat data from backend tasks
-                  const seatTasks = tasks.filter(task => task.extensionsData?.seat_id === seatId);
-                  // Prefer ACTIVE tasks, then sort by updatedAt/createdAt desc to get the latest
-                  const toMillis = (arr) => Array.isArray(arr) && arr.length >= 6 ? Date.UTC(arr[0], (arr[1]||1)-1, arr[2]||1, arr[3]||0, arr[4]||0, arr[5]||0) : 0;
-                  const activeTasks = seatTasks.filter(t => t.extensionsData?.task_status === 'ACTIVE');
-                  const sortedActive = activeTasks.sort((a,b) => (toMillis(b.updatedAt||b.createdAt) - toMillis(a.updatedAt||a.createdAt)));
-                  const sortedAll = seatTasks.sort((a,b) => (toMillis(b.updatedAt||b.createdAt) - toMillis(a.updatedAt||a.createdAt)));
-                  const latestTask = sortedActive[0] || sortedAll[0];
-                  
-                  // Build seat data from backend task
-                  const seatData = latestTask ? {
-                    id: seatId,
-                    currentTask: {
-                      id: latestTask.title || "order",
-                      name: latestTask.title === "serve" ? "Serve" : latestTask.title === "order" ? "Order" : latestTask.title === "payment" ? "Payment" : (latestTask.title || "Order")
-                    },
-                    currentTaskUuid: latestTask.taskUuid,
-                    createdAt: latestTask.createdAt
-                  } : tableSeats[selectedTableForSeats.id]?.[seatId];
-                
-                // Debug logging
-                if (seatId === 99) {
-                  console.log('=== All Seats Debug ===');
-                  console.log('Seat ID:', seatId);
-                  console.log('Selected Table:', selectedTableForSeats);
-                  console.log('Table Seats:', tableSeats[selectedTableForSeats.id]);
-                  console.log('Seat Data for ID 99:', seatData);
-                  console.log('Selected Seats For Table:', selectedSeatsForTable);
-                }
-                
-                // Display seat number (seat 99 is "All Seats", others are Seat 1, 2, 3, etc.)
-                const displaySeatNumber = seatId === 99 ? 'All Seats' : seatId;
-                
-                if (!seatData) {
-                  return (
-                    <div key={seatId} className="rounded-xl md:rounded-2xl border-2 p-4 md:p-6 bg-gray-100">
-                      <div className="text-center text-gray-500">
-                        <div className="font-mono font-bold text-lg">{displaySeatNumber === 'All Seats' ? 'All Seats' : `Seat ${displaySeatNumber}`}</div>
-                        <div className="text-sm">Loading...</div>
-                      </div>
-                    </div>
-                  );
-                }
-                
-                // Enhanced color scheme based on task type
-                
-                const backgroundClass = getTableBackgroundClass(seatData.currentTask.id);
-                const isSelected = seatData.selectedSeats && seatData.selectedSeats.includes(seatId);
-                
-                // Debug logging for seat ID 99
-                if (seatId === 99) {
-                  console.log('=== All Seats Rendering Debug ===');
-                  console.log('Background Class:', backgroundClass);
-                  console.log('Is Selected:', isSelected);
-                  console.log('Seat Data Selected Seats:', seatData.selectedSeats);
-                  console.log('Current Task ID:', seatData.currentTask.id);
-                }
-                
-                return (
-                  <div 
-                    key={seatId} 
-                    onClick={() => handleSeatPageSeatClick(seatId)}
-                    className={`rounded-xl md:rounded-2xl border-2 p-4 md:p-6 space-y-3 md:space-y-4 ${backgroundClass} shadow-lg hover:shadow-xl active:scale-[0.98] transition-all duration-200 cursor-pointer`}
-                  >
-                    <div className="text-center space-y-2">
-                      <div className="font-bold text-lg text-gray-800">
-                        {seatId === 99 ? 'All Seats' : `Seat ${seatId}`}
-                          </div>
-                      <div className="font-semibold text-md text-gray-700">
-                        {seatData.currentTask.name}
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {new Date().toISOString()}
-                      </div>
-                    </div>
-                  </div>
-                );
+                const existingSeats = Array.from(new Set(
+                  tasks.map(t => t.extensionsData?.seat_id)
+                    .filter(s => s && s !== '99')
+                    .map(s => parseInt(s, 10))
+                ));
+                const remaining = Math.max(0, 20 - existingSeats.length);
+                setMaxSeatAddCap(remaining);
+                setNumberOfSeats(Math.min(4, Math.max(1, remaining)));
+                setTableForSeatNumberPrompt(selectedTableForSeats);
+                setShowSeatNumberPrompt(true);
+              }}
+              onClearTable={async () => {
+                const tableId = selectedTableForSeats.id;
+                await clearTableBackend(tableId);
+                setTableSeats(prev => {
+                  const updatedSeats = { ...prev };
+                  if (updatedSeats[tableId]) {
+                    Object.keys(updatedSeats[tableId]).forEach(seatId => {
+                      updatedSeats[tableId][seatId] = {
+                        ...updatedSeats[tableId][seatId],
+                        currentTaskIndex: 0,
+                        currentTask: { ...taskFlow[0] },
+                        minutes: 0,
+                        status: "Pending",
+                        orderMoreNext: false,
+                        serveHistory: []
+                      };
+                    });
+                  }
+                  return updatedSeats;
                 });
-              })()}
-            </div>
+                setTableCarts(prev => {
+                  const updatedCarts = { ...prev };
+                  const currentSeats = tableSeats[tableId];
+                  if (currentSeats) {
+                    Object.keys(currentSeats).forEach(seatId => {
+                      const seatKey = `${tableId}-S${seatId}`;
+                      updatedCarts[seatKey] = [];
+                    });
+                  }
+                  return updatedCarts;
+                });
+                setRows(prev => prev.map(row => 
+                  row.id === tableId 
+                    ? { 
+                        ...row, 
+                        selectedSeats: [],
+                        currentTaskIndex: 0,
+                        currentTask: { ...taskFlow[0] },
+                        minutes: 0,
+                        status: "Available",
+                        serveHistory: []
+                      }
+                    : row
+                ));
+                setQuantities({});
+                setCartNote('');
+                setShowMenu(false);
+                setShowCart(false);
+                setShowComments(false);
+                setActiveOrderTab("1");
+                setSelectedSeatsForTable([]);
+                setTableSeats(prev => {
+                  const updated = { ...prev };
+                  delete updated[tableId];
+                  return updated;
+                });
+                setShowSeatPageView(false);
+                setSelectedTableForSeats(null);
+              }}
+              currentTaskName={rows.find(row => row.id === selectedTableForSeats.id)?.currentTask?.name || "Assign Table"}
+            />
+
+            {/* Table Seats Grid */}
+            <SeatPageGrid
+              selectedTableForSeats={selectedTableForSeats}
+              activeTasksForTable={activeTasksForTable}
+              selectedSeatsForTable={selectedSeatsForTable}
+              tableSeats={tableSeats}
+              getTableBackgroundClass={getTableBackgroundClass}
+              onSeatClick={handleSeatPageSeatClick}
+            />
           </div>
         )}
 

@@ -1296,6 +1296,18 @@ export default function AllTables() {
           );
           
           if (billTask) {
+            // Check if this task was created by backend
+            const taskCreatedAt = billTask.createdAt || billTask.created_at;
+            const isBackendCreated = taskCreatedAt && new Date(taskCreatedAt) > new Date(Date.now() - 10000); // Within 10 seconds
+            
+            if (isBackendCreated) {
+              console.log('[Bill Issuance] ✅✅✅ BACKEND WORKFLOW AUTOMATION WORKING! ✅✅✅');
+              console.log('[Bill Issuance] Backend automatically created bill_issuance task:', billTask.taskUuid);
+              console.log('[Bill Issuance] Task created at:', taskCreatedAt);
+            } else {
+              console.log('[Bill Issuance] ✅ Found bill_issuance task (may be from previous session)');
+            }
+            
             setExpandedCard(prev => ({
               ...prev,
               currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
@@ -1305,7 +1317,8 @@ export default function AllTables() {
             }));
           } else {
             // Backend didn't create bill_issuance task - create it manually as fallback
-            console.log('[Bill Issuance] Backend didn\'t create bill_issuance task. Creating manually as fallback...');
+            console.log('[Bill Issuance] ⚠️ FRONTEND FALLBACK: Backend didn\'t create bill_issuance task. Creating manually...');
+            console.log('[Bill Issuance] ⚠️ Backend workflow automation is NOT working - using frontend fallback');
             try {
               const parentTaskUuid = currentTask?.extensionsData?.subtask_of || tableTaskMapping[tableId];
               const workflowMetadata = buildWorkflowMetadata("bill_issuance");
@@ -1332,7 +1345,8 @@ export default function AllTables() {
               
               const billResponse = await taskService.createTask(billTaskData);
               if (billResponse?.taskUuid) {
-                console.log('[Bill Issuance] ✅ Successfully created bill_issuance task:', billResponse.taskUuid);
+                console.log('[Bill Issuance] ⚠️ FRONTEND FALLBACK: Successfully created bill_issuance task manually:', billResponse.taskUuid);
+                console.log('[Bill Issuance] This means backend workflow system did NOT create the task automatically');
                 
                 await refreshTasksForTable(tableId);
                 const newTasks = await fetchActiveTasks(tableId);
@@ -1843,7 +1857,8 @@ export default function AllTables() {
         
         if (tableId !== 'N/A' && seatId) {
           // Retry logic to find the new task created by backend
-          const findNextTask = async (retries = 5, delay = 1000) => {
+          // Increased retries and delay to give backend more time
+          const findNextTask = async (retries = 8, delay = 1500) => {
             for (let i = 0; i < retries; i++) {
               console.log(`[Order Placement] Attempting to find order_preparation task (attempt ${i + 1}/${retries})...`);
               
@@ -1862,17 +1877,80 @@ export default function AllTables() {
               });
               
               // Find the new order_preparation task for this seat
-              const prepTask = activeTasks.find(t => {
+              // Try exact match first (seat_id + state)
+              let prepTask = activeTasks.find(t => {
                 const taskSeatId = t.extensionsData?.seat_id?.toString();
                 const taskState = t.extensionsData?.workflow?.current_state;
                 const matches = taskSeatId === seatId && taskState === 'order_preparation';
                 if (matches) {
-                  console.log(`[Order Placement] ✅ Found matching task: ${t.taskUuid}`);
+                  console.log(`[Order Placement] ✅ Found exact matching task: ${t.taskUuid}`);
                 }
                 return matches;
               });
               
+              // If not found, try flexible match (just state, or title contains "preparation")
+              if (!prepTask) {
+                console.log('[Order Placement] No exact match found. Trying flexible search...');
+                prepTask = activeTasks.find(t => {
+                  const taskState = t.extensionsData?.workflow?.current_state;
+                  const taskTitle = (t.title || '').toLowerCase();
+                  const taskTableId = t.extensionsData?.table_id?.toString();
+                  const matches = (taskState === 'order_preparation' || taskTitle.includes('preparation')) 
+                                  && taskTableId === tableId;
+                  if (matches) {
+                    console.log(`[Order Placement] ✅ Found flexible matching task: ${t.taskUuid}, seat_id=${t.extensionsData?.seat_id}, title=${t.title}`);
+                  }
+                  return matches;
+                });
+              }
+              
+              // If still not found, check if backend created a task with different seat_id or no seat_id
+              if (!prepTask && i === retries - 1) {
+                console.log('[Order Placement] Final attempt: Checking for any order_preparation task for this table...');
+                const anyPrepTask = activeTasks.find(t => {
+                  const taskState = t.extensionsData?.workflow?.current_state;
+                  const taskTableId = t.extensionsData?.table_id?.toString();
+                  return taskState === 'order_preparation' && taskTableId === tableId;
+                });
+                if (anyPrepTask) {
+                  console.log(`[Order Placement] ⚠️ Found order_preparation task but seat_id mismatch:`, {
+                    found_seat_id: anyPrepTask.extensionsData?.seat_id,
+                    expected_seat_id: seatId,
+                    task_uuid: anyPrepTask.taskUuid
+                  });
+                  // Use it anyway if it's the only one
+                  prepTask = anyPrepTask;
+                }
+              }
+              
               if (prepTask) {
+                // Check if this task was created by backend (created recently)
+                const taskCreatedAt = prepTask.createdAt || prepTask.created_at;
+                const now = Date.now();
+                const taskTime = taskCreatedAt ? new Date(taskCreatedAt).getTime() : 0;
+                const timeDiff = now - taskTime;
+                const isBackendCreated = taskCreatedAt && timeDiff < 30000; // Within 30 seconds (increased from 10)
+                
+                console.log('[Order Placement] Task details:', {
+                  uuid: prepTask.taskUuid,
+                  title: prepTask.title,
+                  seat_id: prepTask.extensionsData?.seat_id,
+                  table_id: prepTask.extensionsData?.table_id,
+                  current_state: prepTask.extensionsData?.workflow?.current_state,
+                  createdAt: taskCreatedAt,
+                  timeDiffMs: timeDiff,
+                  isBackendCreated: isBackendCreated
+                });
+                
+                if (isBackendCreated) {
+                  console.log('[Order Placement] ✅✅✅ BACKEND WORKFLOW AUTOMATION WORKING! ✅✅✅');
+                  console.log('[Order Placement] Backend automatically created order_preparation task:', prepTask.taskUuid);
+                  console.log('[Order Placement] Task created at:', taskCreatedAt);
+                  console.log('[Order Placement] Time difference:', Math.round(timeDiff / 1000), 'seconds');
+                } else {
+                  console.log('[Order Placement] ✅ Found order_preparation task (may be from previous session or frontend fallback)');
+                }
+                
                 console.log('[Order Placement] ✅ Successfully found order_preparation task, switching view...');
                 setExpandedCard(prev => ({
                   ...prev,
@@ -1952,7 +2030,10 @@ export default function AllTables() {
                 const prepResponse = await taskService.createTask(prepTaskData);
                 
                 if (prepResponse?.taskUuid) {
-                  console.log('[Order Placement] ✅ Successfully created order_preparation task:', prepResponse.taskUuid);
+                  console.log('[Order Placement] ⚠️ FRONTEND FALLBACK: Created order_preparation task manually');
+                  console.log('[Order Placement] This means backend workflow system did NOT create the task automatically');
+                  console.log('[Order Placement] Task UUID:', prepResponse.taskUuid);
+                  console.log('[Order Placement] ⚠️ Backend workflow automation is NOT working - using frontend fallback');
                   
                   // Refresh tasks and switch to preparation view
                   await refreshTasksForTable(tableId);
@@ -2676,6 +2757,18 @@ export default function AllTables() {
             );
             
             if (nextTask) {
+              // Check if this task was created by backend
+              const taskCreatedAt = nextTask.createdAt || nextTask.created_at;
+              const isBackendCreated = taskCreatedAt && new Date(taskCreatedAt) > new Date(Date.now() - 10000); // Within 10 seconds
+              
+              if (isBackendCreated) {
+                console.log(`[Workflow] ✅✅✅ BACKEND WORKFLOW AUTOMATION WORKING! ✅✅✅`);
+                console.log(`[Workflow] Backend automatically created ${nextState} task:`, nextTask.taskUuid);
+                console.log(`[Workflow] Task created at:`, taskCreatedAt);
+              } else {
+                console.log(`[Workflow] ✅ Found ${nextState} task (may be from previous session)`);
+              }
+              
               const taskType = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'BILL' : 'SERVE';
               const taskName = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
               
@@ -2692,7 +2785,8 @@ export default function AllTables() {
               }));
             } else if (nextState) {
               // Backend didn't create the task - create it manually as fallback
-              console.log(`[Workflow] Backend didn't create ${nextState} task. Creating manually as fallback...`);
+              console.log(`[Workflow] ⚠️ FRONTEND FALLBACK: Backend didn't create ${nextState} task. Creating manually...`);
+              console.log(`[Workflow] ⚠️ Backend workflow automation is NOT working - using frontend fallback`);
               try {
                 const parentTaskUuid = currentTask?.extensionsData?.subtask_of || tableTaskMapping[tableId];
                 const workflowMetadata = buildWorkflowMetadata(nextState);
@@ -2719,7 +2813,8 @@ export default function AllTables() {
                 
                 const nextTaskResponse = await taskService.createTask(nextTaskData);
                 if (nextTaskResponse?.taskUuid) {
-                  console.log(`[Workflow] ✅ Successfully created ${nextState} task:`, nextTaskResponse.taskUuid);
+                  console.log(`[Workflow] ⚠️ FRONTEND FALLBACK: Successfully created ${nextState} task manually:`, nextTaskResponse.taskUuid);
+                  console.log(`[Workflow] This means backend workflow system did NOT create the task automatically`);
                   
                   await refreshTasksForTable(tableId);
                   const newTasks = await fetchActiveTasks(tableId);

@@ -240,6 +240,26 @@ export default function AllTables() {
     fetchWorkflowConfig();
   }, [orgUuid]);
   
+  // Update menu visibility based on workflow current_state (as per requirements)
+  useEffect(() => {
+    if (!expandedCard) {
+      setShowMenu(false);
+      return;
+    }
+    
+    // Check workflow current_state from extensionsData
+    const currentState = expandedCard.extensionsData?.workflow?.current_state || 
+                        expandedCard.workflowState;
+    
+    // Show menu only when current_state is "order_placement" (as per requirements)
+    if (currentState === 'order_placement') {
+      ensureMenuLoaded().catch(() => {});
+      setShowMenu(true);
+    } else {
+      setShowMenu(false);
+    }
+  }, [expandedCard?.extensionsData?.workflow?.current_state, expandedCard?.workflowState, expandedCard]);
+  
   // Helper function to build workflow metadata for task extensions_data
   const buildWorkflowMetadata = (currentState) => {
     if (!workflowConfig) {
@@ -1084,7 +1104,9 @@ export default function AllTables() {
     }] : [];
     
     // Create a seat object from backend task data
-      const seatObject = {
+    // Include workflow state information
+    const workflowState = seatTask.extensionsData?.workflow?.current_state || 'order_placement';
+    const seatObject = {
         id: `${tableId}-S${seatNumber}`,
         seatNumber: seatNumber,
         tableId: tableId,
@@ -1093,12 +1115,14 @@ export default function AllTables() {
           name: seatTask.title === "serve" ? "Serve" : seatTask.title === "order" ? "Order" : seatTask.title === "payment" ? "Payment" : (seatTask.title || "Order"),
           type: (seatTask.title || "ORDER").toUpperCase()
         },
-      currentTaskUuid: seatTask.taskUuid,
-      seatTaskUuid: seatTask.taskUuid,
-      minutes: 0, // Can be calculated from createdAt if needed
-      status: "Pending",
-      orderMoreNext: false,
-      serveHistory: serveHistory,
+        currentTaskUuid: seatTask.taskUuid,
+        seatTaskUuid: seatTask.taskUuid,
+        workflowState: workflowState, // Store workflow state for menu visibility
+        extensionsData: seatTask.extensionsData, // Store full extensions data
+        minutes: 0, // Can be calculated from createdAt if needed
+        status: "Pending",
+        orderMoreNext: false,
+        serveHistory: serveHistory,
         selectedSeats: [seatNumber]
       };
     
@@ -1109,14 +1133,16 @@ export default function AllTables() {
       setExpandedCard(seatObject);
       setActiveOrderTab(seatNumber.toString());
       
-      // Only open menu for Order task
-      const isOrderTask = seatTask.title === 'order';
-      if (isOrderTask) {
+      // Show menu only when workflow current_state is "order_placement" (as per requirements)
+      const currentState = seatTask.extensionsData?.workflow?.current_state;
+      const isOrderPlacement = currentState === 'order_placement';
+      
+      if (isOrderPlacement) {
         try { await ensureMenuLoaded(); } catch {}
-      setShowMenu(true);
+        setShowMenu(true);
       } else {
         setShowMenu(false);
-    }
+      }
   };
 
   const handleBarSeatClick = (seat) => {
@@ -1768,8 +1794,12 @@ export default function AllTables() {
               setExpandedCard(prev => ({
                 ...prev,
                 currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
-                currentTaskUuid: prepTask.taskUuid
+                currentTaskUuid: prepTask.taskUuid,
+                workflowState: prepTask.extensionsData?.workflow?.current_state,
+                extensionsData: prepTask.extensionsData
               }));
+              // Hide menu when workflow advances to order_preparation
+              setShowMenu(false);
             }
           }, 1000);
         }

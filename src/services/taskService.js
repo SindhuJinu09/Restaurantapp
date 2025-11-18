@@ -553,6 +553,26 @@ export const menuService = {
 
       const menuItems = await response.json();
       console.log('Menu items fetched successfully:', menuItems);
+      
+      // If menu is empty, return mock items for development/testing
+      if (!menuItems || menuItems.length === 0) {
+        console.warn('Menu API returned empty array. Using mock menu items for development.');
+        return [
+          {id: 1, name: "Cappuccino", description: "Rich espresso with steamed milk foam", basePrice: 5.00, isAvailable: true},
+          {id: 2, name: "Americano", description: "Smooth espresso diluted with hot water", basePrice: 3.00, isAvailable: true},
+          {id: 3, name: "Iced Latte", description: "Chilled espresso with cold milk and ice", basePrice: 4.75, isAvailable: true},
+          {id: 4, name: "Garlic Bread", description: "Toasted bread with garlic butter and herbs", basePrice: 5.50, isAvailable: true},
+          {id: 5, name: "Margherita Pizza", description: "Classic pizza with mozzarella, tomato, and basil", basePrice: 12.99, isAvailable: true},
+          {id: 6, name: "Pasta Alfredo", description: "Creamy fettuccine pasta with parmesan sauce", basePrice: 13.50, isAvailable: true},
+          {id: 7, name: "Chicken Burger", description: "Grilled chicken patty with lettuce and mayo", basePrice: 9.99, isAvailable: true},
+          {id: 8, name: "Caesar Salad", description: "Crisp romaine lettuce with Caesar dressing", basePrice: 7.50, isAvailable: true},
+          {id: 9, name: "French Fries", description: "Crispy golden fries served with ketchup", basePrice: 4.00, isAvailable: true},
+          {id: 10, name: "Brownie", description: "Chocolate brownie with a fudgy center", basePrice: 5.00, isAvailable: true},
+          {id: 11, name: "Ice Cream Sundae", description: "Vanilla ice cream topped with chocolate sauce", basePrice: 6.25, isAvailable: true},
+          {id: 12, name: "Mango Smoothie", description: "Fresh mango blended with yogurt and honey", basePrice: 5.75, isAvailable: true}
+        ];
+      }
+      
       return menuItems;
     } catch (error) {
       console.error('Error fetching menu items:', error);

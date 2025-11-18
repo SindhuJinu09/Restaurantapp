@@ -1836,12 +1836,31 @@ export default function AllTables() {
             console.log('  1. Backend workflow system is not creating the task automatically');
             console.log('  2. Backend is using a different state name');
             console.log('  3. Backend needs more time to process');
-            console.log('[Order Placement] Returning to seat view. User can manually check tasks.');
+            console.log('[Order Placement] Order was placed successfully. Returning to seat view.');
+            
+            // Show success message to user
+            alert(`✅ Order placed successfully!\n\nYour order has been submitted. The kitchen will prepare it shortly.\n\nNote: If the backend workflow system is configured, the order preparation task should appear automatically.`);
             
             // Fallback: Return to seat page view so user can see the updated state
             setShowMenu(false);
             setShowSeatPageView(true);
             setExpandedCard(null);
+            
+            // Refresh tasks one more time after a delay in case backend is slow
+            setTimeout(async () => {
+              await refreshTasksForTable(tableId);
+              const finalTasks = await fetchActiveTasks(tableId);
+              const prepTask = finalTasks.find(t => {
+                const taskSeatId = t.extensionsData?.seat_id?.toString();
+                const taskState = t.extensionsData?.workflow?.current_state;
+                return taskSeatId === seatId && taskState === 'order_preparation';
+              });
+              
+              if (prepTask) {
+                console.log('[Order Placement] ✅ Found order_preparation task on delayed check!');
+                // User can click on the seat again to see the preparation task
+              }
+            }, 3000); // Check again after 3 seconds
           };
           
           // Start retry logic after initial delay
@@ -1961,6 +1980,41 @@ export default function AllTables() {
     
     // Use backend-fetched tasks for the table
     const tasks = activeTasksForTable[tableId] || [];
+    
+    // Check if we're on a PREPARATION task - use current task's orderItems
+    const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || expandedCard.currentTask?.id === 'preparation';
+    if (isPreparationTask && expandedCard.extensionsData?.orderItems) {
+      const allItems = expandedCard.extensionsData.orderItems || [];
+      const seatIdFromBackend = expandedCard.extensionsData?.seat_id;
+      
+      // Group items by their orderTimestamp
+      const groups = new Map();
+      for (const item of allItems) {
+        const ts = item.orderTimestamp || 'UNKNOWN';
+        if (!groups.has(ts)) groups.set(ts, []);
+        groups.get(ts).push(item);
+      }
+      
+      // Sort groups by timestamp ascending (UNKNOWN last)
+      const sortedTimestamps = Array.from(groups.keys()).sort((a, b) => {
+        if (a === 'UNKNOWN') return 1;
+        if (b === 'UNKNOWN') return -1;
+        return new Date(a).getTime() - new Date(b).getTime();
+      });
+      
+      // Build orders array: Order #1, #2, ...
+      const orders = sortedTimestamps.map((ts, idx) => ({
+        orderNumber: idx + 1,
+        status: 'Pending',
+        timestamp: ts === 'UNKNOWN' ? new Date().toLocaleTimeString() : new Date(ts).toLocaleTimeString(),
+        seatId: seatIdFromBackend,
+        items: groups.get(ts)
+      }));
+      
+      return orders;
+    }
+    
+    // For SERVE tasks, use the existing logic
     const serveTasks = tasks.filter(t => 
       t.extensionsData?.seat_id === seatId &&
       t.extensionsData?.task_status === 'ACTIVE' &&
@@ -3087,11 +3141,15 @@ export default function AllTables() {
               {!showMenu && (
                 <div className="flex-1 p-8 md:p-6 overflow-y-auto">
                   <div className="space-y-4">
-                    {(expandedCard.seat.currentTask.id === "4" || expandedCard.currentTask?.id === "serve" || expandedCard.currentTask?.type === "SERVE") ? (
+                    {(expandedCard.seat.currentTask.id === "4" || expandedCard.currentTask?.id === "serve" || expandedCard.currentTask?.type === "SERVE" || expandedCard.currentTask?.type === "PREPARATION" || expandedCard.currentTask?.id === "preparation") ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                             <div className="text-center mb-4">
-                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">Order Summary - Seat {expandedCard.seat.id}</h3>
+                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">
+                            {(expandedCard.currentTask?.type === "PREPARATION" || expandedCard.currentTask?.id === "preparation")
+                              ? `Order Preparation - Seat ${expandedCard.seat.id}`
+                              : `Order Summary - Seat ${expandedCard.seat.id}`}
+                          </h3>
                             </div>
                             
                         {/* Order Items */}
@@ -3571,11 +3629,15 @@ export default function AllTables() {
                           </button>
                         </div>
                       </div>
-                    ) : (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") ? (
+                    ) : (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE" || expandedCard.currentTask.type === "PREPARATION" || expandedCard.currentTask.id === "preparation") ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                         <div className="text-center mb-4">
-                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">Order Summary - Seat {expandedCard.seatNumber}</h3>
+                          <h3 className="text-xl font-bold text-purple-800 bg-purple-100 px-4 py-2 rounded-lg">
+                            {expandedCard.currentTask.type === "PREPARATION" || expandedCard.currentTask.id === "preparation" 
+                              ? `Order Preparation - Seat ${expandedCard.seatNumber}` 
+                              : `Order Summary - Seat ${expandedCard.seatNumber}`}
+                          </h3>
                         </div>
                         
                         {/* Order Items */}

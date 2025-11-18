@@ -1776,34 +1776,81 @@ export default function AllTables() {
         // Backend will automatically create the next task (order_preparation) based on workflow config
         // Refresh tasks to get the new task created by backend
         const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
-        if (tableId !== 'N/A') {
-          // Wait a bit for backend to process workflow advancement
-          setTimeout(async () => {
-            await refreshTasksForTable(tableId);
-            // Fetch active tasks to see the new order_preparation task
-            const activeTasks = await fetchActiveTasks(tableId);
-            const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
-            
-            // Find the new order_preparation task for this seat
-            const prepTask = activeTasks.find(t => 
-              t.extensionsData?.seat_id === seatId &&
-              t.extensionsData?.workflow?.current_state === 'order_preparation'
-            );
-            
-            if (prepTask) {
-              setExpandedCard(prev => ({
-                ...prev,
-                currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
-                currentTaskUuid: prepTask.taskUuid,
-                workflowState: prepTask.extensionsData?.workflow?.current_state,
-                extensionsData: prepTask.extensionsData
-              }));
-              // Hide menu when workflow advances to order_preparation
-              setShowMenu(false);
+        const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
+        
+        if (tableId !== 'N/A' && seatId) {
+          // Retry logic to find the new task created by backend
+          const findNextTask = async (retries = 5, delay = 1000) => {
+            for (let i = 0; i < retries; i++) {
+              console.log(`[Order Placement] Attempting to find order_preparation task (attempt ${i + 1}/${retries})...`);
+              
+              await refreshTasksForTable(tableId);
+              const activeTasks = await fetchActiveTasks(tableId);
+              
+              console.log(`[Order Placement] Found ${activeTasks.length} active tasks for table ${tableId}`);
+              console.log(`[Order Placement] Looking for seat ${seatId} with state 'order_preparation'...`);
+              
+              // Log all tasks to see what we have
+              activeTasks.forEach((t, idx) => {
+                const taskSeatId = t.extensionsData?.seat_id?.toString();
+                const taskState = t.extensionsData?.workflow?.current_state;
+                const taskTitle = t.title;
+                console.log(`[Order Placement] Task ${idx + 1}: UUID=${t.taskUuid}, title=${taskTitle}, seat_id=${taskSeatId}, current_state=${taskState}`);
+              });
+              
+              // Find the new order_preparation task for this seat
+              const prepTask = activeTasks.find(t => {
+                const taskSeatId = t.extensionsData?.seat_id?.toString();
+                const taskState = t.extensionsData?.workflow?.current_state;
+                const matches = taskSeatId === seatId && taskState === 'order_preparation';
+                if (matches) {
+                  console.log(`[Order Placement] ✅ Found matching task: ${t.taskUuid}`);
+                }
+                return matches;
+              });
+              
+              if (prepTask) {
+                console.log('[Order Placement] ✅ Successfully found order_preparation task, switching view...');
+                setExpandedCard(prev => ({
+                  ...prev,
+                  currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
+                  currentTaskUuid: prepTask.taskUuid,
+                  workflowState: prepTask.extensionsData?.workflow?.current_state,
+                  extensionsData: prepTask.extensionsData
+                }));
+                // Hide menu when workflow advances to order_preparation
+                setShowMenu(false);
+                return; // Success, exit retry loop
+              }
+              
+              // If not found and not last retry, wait before next attempt
+              if (i < retries - 1) {
+                console.log(`[Order Placement] ⏳ Order preparation task not found yet. Waiting ${delay}ms before retry...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              }
             }
+            
+            // If we get here, task wasn't found after all retries
+            console.warn('[Order Placement] ⚠️ Order preparation task not found after all retries.');
+            console.log('[Order Placement] This could mean:');
+            console.log('  1. Backend workflow system is not creating the task automatically');
+            console.log('  2. Backend is using a different state name');
+            console.log('  3. Backend needs more time to process');
+            console.log('[Order Placement] Returning to seat view. User can manually check tasks.');
+            
+            // Fallback: Return to seat page view so user can see the updated state
+            setShowMenu(false);
+            setShowSeatPageView(true);
+            setExpandedCard(null);
+          };
+          
+          // Start retry logic after initial delay
+          setTimeout(() => {
+            findNextTask(5, 1000); // 5 retries, 1 second apart
           }, 1000);
+        } else {
+          setShowMenu(false);
         }
-        setShowMenu(false);
       } else {
         console.warn('No task UUID found to update with order items');
       }

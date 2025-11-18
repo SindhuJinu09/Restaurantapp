@@ -10,12 +10,12 @@ const DEVELOPMENT_MODE = false; // Set to false to see actual API errors
 // Static headers for API authentication
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-API-Key': 'pzKOjno8c-aLPvTz0L4b6U-UGDs7_7qq3W7qu7lpF7w',
-  'X-APP-ORG-UUID': 'cts',
-  'X-APP-USER-UUID': '42388507-ec8f-47ef-a7c7-8ddb69763ac6',
-  'X-APP-CLIENT-USER-SESSION-UUID': 'Session UUID',
-  'X-APP-TRACE-ID': 'Trace ID (for logging/debugging)',
-  'X-APP-REGION-ID': 'US-EAST-1'
+  'X-API-Key': 'eBUl5a3OFfwlk-feA7WvaXiWBsP6IwTy-p9s3AbBVZA',
+  'X-APP-ORG-UUID': 'a66035aa-8e6e-4c43-a8c6-358d8d4036af',
+  'X-APP-USER-UUID': '9e76e39a-aaeb-47a8-8182-db7d0187e64f',
+  'X-APP-CLIENT-USER-SESSION-UUID': 'session-unique-id-45678-12345abcd',
+  'X-APP-TRACE-ID': 'trace-id-12345',
+  'X-APP-REGION-ID': 'us-east-1'
 });
 
 // Task Service API calls
@@ -174,8 +174,8 @@ export const taskService = {
       
       const requestBody = {
         requestContext: {
-          organizationUuid: "cts",
-          userUuid: "c17084c5-2ec1-4b53-9676-b6377da957d6"
+          organizationUuid: "a66035aa-8e6e-4c43-a8c6-358d8d4036af",
+          userUuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f"
         },
         filterCriteria: filterCriteria
       };
@@ -224,7 +224,7 @@ export const createTableTask = async (tableId) => {
     title: `Table ${tableId}`,
     description: `Primary task for Table ${tableId}`,
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     dueAt: "2024-12-31T15:00:00",
@@ -255,7 +255,7 @@ export const createSeatTask = async (tableTaskUuid, seatId, seatName) => {
     title: seatName,
     description: `Task for ${seatName}`,
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     dueAt: "2024-12-31T15:00:00",
@@ -287,7 +287,7 @@ export const createSubTask = async (parentTaskUuid, taskName, taskDescription, t
     title: taskName,
     description: taskDescription,
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     dueAt: "2024-12-31T15:00:00",
@@ -319,7 +319,7 @@ export const updateTaskStatus = async (taskUuid, status, additionalFields = {}) 
     status: status,
     updateActorType: "USER",
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     ...additionalFields
@@ -342,7 +342,7 @@ export const updateTaskDescription = async (taskUuid, description) => {
     description: description,
     updateActorType: "USER",
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     }
   };
@@ -364,7 +364,7 @@ export const updateFullTask = async (taskUuid, updateData) => {
     },
     updateActorType: "USER",
     assigneeInfo: {
-      uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+      uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     ...updateData

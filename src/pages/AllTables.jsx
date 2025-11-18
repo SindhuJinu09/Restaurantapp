@@ -12,7 +12,7 @@ import { taskService, createTableTask, createSeatTask, createSubTask, updateTask
 
 // Assignee Info - used in all API calls
 const ASSIGNEE_INFO = {
-  uuid: "c17084c5-2ec1-4b53-9676-b6377da957d6",
+  uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
   idType: "INTERNAL_ID"
 };
 
@@ -106,7 +106,7 @@ export default function AllTables() {
   
   // Workflow configuration state
   const [workflowConfig, setWorkflowConfig] = useState(null); // Store workflow config from organization
-  const [orgUuid, setOrgUuid] = useState('cts'); // Default org UUID, should come from user profile
+  const [orgUuid, setOrgUuid] = useState('a66035aa-8e6e-4c43-a8c6-358d8d4036af'); // Default org UUID, should come from user profile
   
   // Initialize individual seat data for each table
   const initializeTableSeats = () => {

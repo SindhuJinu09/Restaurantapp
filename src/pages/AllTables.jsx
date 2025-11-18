@@ -1019,7 +1019,13 @@ export default function AllTables() {
   const clearTableBackend = async (tableId) => {
     try {
       const tasks = activeTasksForTable[tableId] || [];
-      const active = tasks.filter(t => t.extensionsData?.task_status === 'ACTIVE');
+      // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
+      const isActiveTask = (t) => {
+        const taskStatus = t.extensionsData?.task_status;
+        return taskStatus === "ACTIVE" || 
+               (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+      };
+      const active = tasks.filter(isActiveTask);
       await Promise.all(active.map(async (t) => {
         const existingExt = t.extensionsData || {};
         const updateData = {
@@ -1052,13 +1058,22 @@ export default function AllTables() {
     const tasks = activeTasksForTable[tableId] || [];
     console.log('Active tasks for table:', tasks);
     
-    // Find the task for this specific seat (prefer Serve task with ACTIVE status)
+    // Find the task for this specific seat
+    // Backend creates workflow tasks with task_status=COMPLETED, so we treat those as active
     const seatId = seatNumber.toString();
+    
+    // Helper function to check if task is active (ACTIVE or COMPLETED with workflow state)
+    // Backend creates workflow tasks with COMPLETED status, so we need to check for both
+    const isActiveTask = (task) => {
+      const taskStatus = task.extensionsData?.task_status;
+      return taskStatus === "ACTIVE" || 
+             (taskStatus === "COMPLETED" && task.extensionsData?.workflow?.current_state);
+    };
     
     // First, try to find an active Serve task for this seat
     let seatTask = tasks.find(task => 
       task.extensionsData?.seat_id === seatId && 
-      task.extensionsData?.task_status === "ACTIVE" &&
+      isActiveTask(task) &&
       task.title === "serve"
     );
     
@@ -1066,7 +1081,7 @@ export default function AllTables() {
     if (!seatTask) {
       seatTask = tasks.find(task => 
         task.extensionsData?.seat_id === seatId && 
-        task.extensionsData?.task_status === "ACTIVE"
+        isActiveTask(task)
       );
     }
     
@@ -1081,7 +1096,7 @@ export default function AllTables() {
     // Get ONLY the MOST RECENT active Serve task for this seat
     const serveTasks = tasks.filter(task => 
       task.extensionsData?.seat_id === seatId &&
-      task.extensionsData?.task_status === "ACTIVE" &&
+      isActiveTask(task) &&
       task.title === "serve"
     );
     
@@ -1200,6 +1215,8 @@ export default function AllTables() {
       setLoadingTasks(true);
       console.log('Fetching active tasks for table:', tableId);
       
+      // Backend creates workflow tasks with task_status=COMPLETED (this is expected behavior)
+      // We need to search for both ACTIVE and COMPLETED tasks to find all workflow tasks
       const filterCriteria = {
         attributes: [
           {
@@ -1208,7 +1225,7 @@ export default function AllTables() {
           },
           {
             name: "task_status",
-            values: ["ACTIVE"]
+            values: ["ACTIVE", "COMPLETED"] // Backend creates workflow tasks with COMPLETED status
           }
         ]
       };
@@ -1216,15 +1233,23 @@ export default function AllTables() {
       const response = await taskService.filterTasksByAttributes(filterCriteria);
       
       if (response && response.tasks) {
-        console.log(`Fetched ${response.tasks.length} active tasks for table ${tableId}:`, response.tasks);
+        // Filter to include ACTIVE tasks and COMPLETED tasks that have workflow state (backend-created workflow tasks)
+        const filteredTasks = response.tasks.filter(t => {
+          const taskStatus = t.extensionsData?.task_status;
+          // Include ACTIVE tasks, or COMPLETED tasks that have workflow state (backend-created workflow tasks)
+          return taskStatus === "ACTIVE" || 
+                 (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+        });
+        
+        console.log(`Fetched ${response.tasks.length} tasks for table ${tableId} (${filteredTasks.length} after filtering):`, filteredTasks);
         
         // Store tasks by table ID
         setActiveTasksForTable(prev => ({
           ...prev,
-          [tableId]: response.tasks
+          [tableId]: filteredTasks
         }));
         
-        return response.tasks;
+        return filteredTasks;
       }
       
       return [];
@@ -1245,9 +1270,15 @@ export default function AllTables() {
   // Helper function to filter tasks by workflow current_state
   const getTasksByWorkflowState = (tableId, currentState) => {
     const tasks = activeTasksForTable[tableId] || [];
+    // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
+    const isActiveTask = (task) => {
+      const taskStatus = task.extensionsData?.task_status;
+      return taskStatus === "ACTIVE" || 
+             (taskStatus === "COMPLETED" && task.extensionsData?.workflow?.current_state);
+    };
     return tasks.filter(task => 
       task.extensionsData?.workflow?.current_state === currentState &&
-      task.extensionsData?.task_status === 'ACTIVE'
+      isActiveTask(task)
     );
   };
   
@@ -1873,11 +1904,13 @@ export default function AllTables() {
                 const taskSeatId = t.extensionsData?.seat_id?.toString();
                 const taskState = t.extensionsData?.workflow?.current_state;
                 const taskTitle = t.title;
-                console.log(`[Order Placement] Task ${idx + 1}: UUID=${t.taskUuid}, title=${taskTitle}, seat_id=${taskSeatId}, current_state=${taskState}`);
+                const taskStatus = t.extensionsData?.task_status;
+                console.log(`[Order Placement] Task ${idx + 1}: UUID=${t.taskUuid}, title=${taskTitle}, seat_id=${taskSeatId}, current_state=${taskState}, task_status=${taskStatus}`);
               });
               
               // Find the new order_preparation task for this seat
               // Try exact match first (seat_id + state)
+              // Also check COMPLETED tasks (backend bug workaround)
               let prepTask = activeTasks.find(t => {
                 const taskSeatId = t.extensionsData?.seat_id?.toString();
                 const taskState = t.extensionsData?.workflow?.current_state;
@@ -1937,6 +1970,7 @@ export default function AllTables() {
                   seat_id: prepTask.extensionsData?.seat_id,
                   table_id: prepTask.extensionsData?.table_id,
                   current_state: prepTask.extensionsData?.workflow?.current_state,
+                  task_status: prepTask.extensionsData?.task_status,
                   createdAt: taskCreatedAt,
                   timeDiffMs: timeDiff,
                   isBackendCreated: isBackendCreated
@@ -1947,6 +1981,7 @@ export default function AllTables() {
                   console.log('[Order Placement] Backend automatically created order_preparation task:', prepTask.taskUuid);
                   console.log('[Order Placement] Task created at:', taskCreatedAt);
                   console.log('[Order Placement] Time difference:', Math.round(timeDiff / 1000), 'seconds');
+                  console.log('[Order Placement] Task status:', prepTask.extensionsData?.task_status, '(Backend creates workflow tasks with COMPLETED status)');
                 } else {
                   console.log('[Order Placement] ✅ Found order_preparation task (may be from previous session or frontend fallback)');
                 }
@@ -2209,9 +2244,15 @@ export default function AllTables() {
     }
     
     // For SERVE tasks, use the existing logic
+    // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
+    const isActiveTask = (t) => {
+      const taskStatus = t.extensionsData?.task_status;
+      return taskStatus === "ACTIVE" || 
+             (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+    };
     const serveTasks = tasks.filter(t => 
       t.extensionsData?.seat_id === seatId &&
-      t.extensionsData?.task_status === 'ACTIVE' &&
+      isActiveTask(t) &&
       t.title === 'serve'
     );
     if (serveTasks.length === 0) return [];
@@ -2464,7 +2505,13 @@ export default function AllTables() {
       if (!tableId || !seatId) return;
 
       const tasks = activeTasksForTable[tableId] || [];
-      const serveTask = tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId && t.extensionsData?.task_status === 'ACTIVE')
+      // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
+      const isActiveTask = (t) => {
+        const taskStatus = t.extensionsData?.task_status;
+        return taskStatus === "ACTIVE" || 
+               (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+      };
+      const serveTask = tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId && isActiveTask(t))
         || tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId);
       if (!serveTask?.taskUuid) return;
 

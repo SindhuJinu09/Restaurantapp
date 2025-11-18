@@ -457,6 +457,63 @@ export const createRestaurantWorkflowTasks = async (seatTaskUuid) => {
   return createdTasks;
 };
 
+// Organization Service - Fetch organization details and workflow configurations
+export const organizationService = {
+  // Get organization details with workflow configurations
+  getOrganizationDetails: async (orgUuid) => {
+    try {
+      console.log('Fetching organization details for:', orgUuid);
+      
+      const response = await fetch(`${API_BASE_URL}/api/organization/${orgUuid}`, {
+        method: 'GET',
+        headers: getHeaders(),
+        mode: 'cors'
+      });
+
+      console.log('Organization response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Organization API Error Response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+      }
+
+      const orgData = await response.json();
+      console.log('Organization details fetched successfully:', orgData);
+      return orgData;
+    } catch (error) {
+      console.error('Error fetching organization details:', error);
+      
+      // Mock response for development when CORS fails
+      if (DEVELOPMENT_MODE && (error.message.includes('Failed to fetch') || error.message.includes('CORS'))) {
+        console.warn('CORS Error: Using mock organization data for development.');
+        return {
+          httpStatus: "OK",
+          responseResult: "SUCCESS",
+          organizationDTO: {
+            orgUuid: orgUuid,
+            name: "Mock Restaurant",
+            industryDomain: "restaurant",
+            extensionsData: {
+              workflows: [
+                {
+                  config_url: "s3://nucleus-org-silo/workflows-state-management/Restaurants/workflow_restaurants_common.yaml",
+                  name: "restaurant_ordering",
+                  version: "1",
+                  s3_bucket: "nucleus-org-silo",
+                  s3_key: "workflows-state-management/Restaurants/workflow_restaurants_common.yaml"
+                }
+              ]
+            }
+          }
+        };
+      }
+      
+      throw error;
+    }
+  }
+};
+
 // Menu Service - Fetch menu items from API
 export const menuService = {
   // Get all menu items

@@ -8,7 +8,7 @@ import SeatHeader from "../components/SeatHeader";
 import SeatNumberPrompt from "../components/SeatNumberPrompt";
 import SeatSelectionPopup from "../components/SeatSelectionPopup";
 import { useNavigate } from "react-router-dom";
-import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, updateFullTask, TASK_STATUS_MAPPING, menuService } from "../services/taskService";
+import { taskService, createTableTask, createSeatTask, createSubTask, updateTaskStatus as updateTaskStatusAPI, updateTaskDescription, updateFullTask, TASK_STATUS_MAPPING, menuService, organizationService } from "../services/taskService";
 
 // Assignee Info - used in all API calls
 const ASSIGNEE_INFO = {
@@ -104,6 +104,10 @@ export default function AllTables() {
   const [selectedTableId, setSelectedTableId] = useState(null); // Currently viewing table ID
   const [loadingTasks, setLoadingTasks] = useState(false);
   
+  // Workflow configuration state
+  const [workflowConfig, setWorkflowConfig] = useState(null); // Store workflow config from organization
+  const [orgUuid, setOrgUuid] = useState('cts'); // Default org UUID, should come from user profile
+  
   // Initialize individual seat data for each table
   const initializeTableSeats = () => {
     const seatsData = {};
@@ -198,6 +202,73 @@ export default function AllTables() {
   useEffect(() => {
     initializeTableSeats();
   }, []);
+  
+  // Fetch workflow configuration on component mount (should be called after user login)
+  useEffect(() => {
+    const fetchWorkflowConfig = async () => {
+      try {
+        console.log('Fetching workflow configuration for org:', orgUuid);
+        const orgResponse = await organizationService.getOrganizationDetails(orgUuid);
+        
+        if (orgResponse?.organizationDTO?.extensionsData?.workflows) {
+          const workflows = orgResponse.organizationDTO.extensionsData.workflows;
+          // For now, use the first workflow (restaurant_ordering)
+          const restaurantWorkflow = workflows.find(w => w.name === 'restaurant_ordering') || workflows[0];
+          
+          if (restaurantWorkflow) {
+            setWorkflowConfig({
+              name: restaurantWorkflow.name,
+              version: restaurantWorkflow.version,
+              s3_bucket: restaurantWorkflow.s3_bucket || 'nucleus-org-silo',
+              s3_key: restaurantWorkflow.s3_key || restaurantWorkflow.config_url?.replace('s3://nucleus-org-silo/', '')
+            });
+            console.log('Workflow config loaded:', restaurantWorkflow);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching workflow configuration:', error);
+        // Set default workflow config for development
+        setWorkflowConfig({
+          name: 'restaurant_ordering',
+          version: '1',
+          s3_bucket: 'nucleus-org-silo',
+          s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml'
+        });
+      }
+    };
+    
+    fetchWorkflowConfig();
+  }, [orgUuid]);
+  
+  // Helper function to build workflow metadata for task extensions_data
+  const buildWorkflowMetadata = (currentState) => {
+    if (!workflowConfig) {
+      // Fallback to default if workflow config not loaded yet
+      return {
+        workflow: {
+          metadata: {
+            s3_bucket: 'nucleus-org-silo',
+            s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml',
+            version: '1',
+            name: 'restaurant_ordering'
+          },
+          current_state: currentState
+        }
+      };
+    }
+    
+    return {
+      workflow: {
+        metadata: {
+          s3_bucket: workflowConfig.s3_bucket,
+          s3_key: workflowConfig.s3_key,
+          version: workflowConfig.version,
+          name: workflowConfig.name
+        },
+        current_state: currentState
+      }
+    };
+  };
   
   // Bar seats state management
   const [barSeats, setBarSeats] = useState([
@@ -533,6 +604,9 @@ export default function AllTables() {
     try {
       const PROJECT_PARENT_UUID = "aea2f374-9820-4dd3-9808-5d5209ddf896";
       
+      // Build workflow metadata with current_state = "table_allocation"
+      const workflowMetadata = buildWorkflowMetadata("table_allocation");
+      
       const tableTaskData = {
         requestContext: {
           parentTaskUuid: PROJECT_PARENT_UUID
@@ -548,7 +622,8 @@ export default function AllTables() {
           priority: "HIGH",
           project: "Nucleus",
           phase: "planning",
-          subtask_of: PROJECT_PARENT_UUID
+          subtask_of: PROJECT_PARENT_UUID,
+          ...workflowMetadata  // Include workflow metadata
         }
       };
       
@@ -614,6 +689,9 @@ export default function AllTables() {
         const maxSeat = existingSeats.length > 0 ? Math.max(...existingSeats) : 0;
         const remaining = Math.max(0, 20 - existingSeats.length);
         const toCreate = Math.min(numberOfSeats, remaining);
+        // Build workflow metadata with current_state = "order_placement"
+        const workflowMetadata = buildWorkflowMetadata("order_placement");
+        
         for (let i = 1; i <= toCreate; i++) {
           const seatNum = maxSeat + i;
           const seatTaskData = {
@@ -630,13 +708,17 @@ export default function AllTables() {
               priority: 'HIGH',
               project: 'Nucleus',
               phase: 'planning',
-              subtask_of: tableTaskUuid
+              subtask_of: tableTaskUuid,
+              ...workflowMetadata  // Include workflow metadata
             }
           };
           await taskService.createTask(seatTaskData);
         }
       } else {
         // Initial creation: All Seats (99) and 1..N seats
+        // Build workflow metadata with current_state = "order_placement"
+        const workflowMetadata = buildWorkflowMetadata("order_placement");
+        
         const allSeatsTaskData = {
           requestContext: { parentTaskUuid: tableTaskUuid },
           title: 'order',
@@ -651,7 +733,8 @@ export default function AllTables() {
             priority: 'HIGH',
             project: 'Nucleus',
             phase: 'planning',
-            subtask_of: tableTaskUuid
+            subtask_of: tableTaskUuid,
+            ...workflowMetadata  // Include workflow metadata
           }
         };
         await taskService.createTask(allSeatsTaskData);
@@ -670,7 +753,8 @@ export default function AllTables() {
               priority: 'HIGH',
               project: 'Nucleus',
               phase: 'planning',
-              subtask_of: tableTaskUuid
+              subtask_of: tableTaskUuid,
+              ...workflowMetadata  // Include workflow metadata
             }
           };
           await taskService.createTask(seatTaskData);
@@ -1082,6 +1166,114 @@ export default function AllTables() {
     console.log('Refreshing tasks for table:', tableId);
     await fetchActiveTasks(tableId);
   };
+  
+  // Helper function to filter tasks by workflow current_state
+  const getTasksByWorkflowState = (tableId, currentState) => {
+    const tasks = activeTasksForTable[tableId] || [];
+    return tasks.filter(task => 
+      task.extensionsData?.workflow?.current_state === currentState &&
+      task.extensionsData?.task_status === 'ACTIVE'
+    );
+  };
+  
+  // Function to handle bill issuance - update current task to COMPLETED to advance to bill_issuance
+  const handleBillIssuance = async () => {
+    if (!expandedCard || !expandedCard.currentTaskUuid) return;
+    
+    try {
+      const tableId = expandedCard.tableId || expandedCard.seat?.tableId || expandedCard.id;
+      const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
+      
+      // Get current task to preserve workflow metadata
+      let currentTask = null;
+      try {
+        const existingTask = await taskService.getTaskById(expandedCard.currentTaskUuid);
+        currentTask = existingTask?.taskDTO;
+      } catch (e) {
+        console.warn('Could not fetch existing task for workflow metadata');
+      }
+      
+      // Preserve workflow metadata
+      const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_serving").workflow;
+      
+      // Update task to COMPLETED to trigger workflow advancement to bill_issuance
+      const updateData = {
+        status: "COMPLETED",
+        extensionsData: {
+          ...(currentTask?.extensionsData || {}),
+          task_status: "COMPLETED",
+          workflow: workflowData
+        }
+      };
+      
+      console.log('Updating task to COMPLETED for bill issuance:', JSON.stringify(updateData, null, 2));
+      await updateFullTask(expandedCard.currentTaskUuid, updateData);
+      console.log('Task updated. Backend should advance workflow to bill_issuance.');
+      
+      // Refresh tasks to get the new bill_issuance task
+      if (tableId) {
+        setTimeout(async () => {
+          await refreshTasksForTable(tableId);
+          const billTasks = getTasksByWorkflowState(tableId, 'bill_issuance');
+          const billTask = billTasks.find(t => t.extensionsData?.seat_id === seatId);
+          
+          if (billTask) {
+            setExpandedCard(prev => ({
+              ...prev,
+              currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
+              currentTaskUuid: billTask.taskUuid
+            }));
+          }
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Error handling bill issuance:', error);
+    }
+  };
+  
+  // Function to calculate total from all tasks for a seat
+  const calculateSeatTotal = (tableId, seatId) => {
+    const tasks = activeTasksForTable[tableId] || [];
+    let total = 0;
+    
+    // Find all tasks for this seat that have orderItems
+    const seatTasks = tasks.filter(t => 
+      t.extensionsData?.seat_id === seatId.toString() &&
+      t.extensionsData?.orderItems
+    );
+    
+    // Sum up all order items from all tasks
+    seatTasks.forEach(task => {
+      const orderItems = task.extensionsData.orderItems || [];
+      orderItems.forEach(item => {
+        if (item.status === 'ORDERED' || item.status === 'SERVED' || item.orderStatus === 'ORDERED' || item.orderStatus === 'SERVED') {
+          total += (item.price || (item.basePrice * (item.quantity || 1)));
+        }
+      });
+    });
+    
+    return total;
+  };
+  
+  // Function to calculate total for all seats in a table
+  const calculateTableTotal = (tableId) => {
+    const tasks = activeTasksForTable[tableId] || [];
+    let total = 0;
+    
+    // Sum up all order items from all tasks for this table
+    tasks.forEach(task => {
+      if (task.extensionsData?.table_id === tableId && task.extensionsData?.orderItems) {
+        const orderItems = task.extensionsData.orderItems || [];
+        orderItems.forEach(item => {
+          if (item.status === 'ORDERED' || item.status === 'SERVED' || item.orderStatus === 'ORDERED' || item.orderStatus === 'SERVED') {
+            total += (item.price || (item.basePrice * (item.quantity || 1)));
+          }
+        });
+      }
+    });
+    
+    return total;
+  };
 
   // Prefetch active tasks for all visible tables so badges persist on reload
   useEffect(() => {
@@ -1481,72 +1673,64 @@ export default function AllTables() {
         }
         const mergedOrderItems = [...existingOrderItems, ...apiOrderItems];
 
+        // Get current task to preserve workflow metadata
+        let currentTask = null;
+        try {
+          const existingTask = await taskService.getTaskById(taskUuidToUpdate);
+          currentTask = existingTask?.taskDTO;
+        } catch (e) {
+          console.warn('Could not fetch existing task for workflow metadata');
+        }
+        
+        // Preserve workflow metadata and update current_state if needed
+        const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_placement").workflow;
+        
         // Update task with merged order items in extensionsData (matching Postman format)
+        // Set status to COMPLETED so backend can advance workflow
         const updateData = {
           title: taskTitle,
           description: fullOrderDescription,
-          status: "IN_PROGRESS",
+          status: "COMPLETED",  // Set to COMPLETED to trigger workflow advancement
           dueAt: "2025-12-31T15:00:00",
           extensionsData: {
             priority: "HIGH",
             task_status: "COMPLETED",  // Mark Order task as completed
-            orderItems: mergedOrderItems  // Preserve previous + add new items
+            orderItems: mergedOrderItems,  // Preserve previous + add new items
+            workflow: workflowData  // Preserve workflow metadata
           }
         };
         
-        console.log('Updating task with order items:', JSON.stringify(updateData, null, 2));
+        console.log('Updating task with order items and COMPLETED status:', JSON.stringify(updateData, null, 2));
         await updateFullTask(taskUuidToUpdate, updateData);
-        console.log('Order task updated successfully with cart items');
+        console.log('Order task updated successfully with cart items. Backend should advance workflow.');
         
-        // Now create a Serve task with the order items
-        try {
-          const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString() || 'N/A';
-          const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
-          
-          // Create Serve task with merged items
-          const serveTaskData = {
-            requestContext: {
-              parentTaskUuid: taskUuidToUpdate  // Make it a child of the Order task
-            },
-            title: "serve",
-            description: fullOrderDescription,
-            assigneeInfo: ASSIGNEE_INFO,
-            dueAt: "2024-12-31T15:00:00",
-            extensionsData: {
-              seat_id: seatId,
-              table_id: tableId,
-              task_status: "ACTIVE",
-              status: "pending",
-              priority: "HIGH",
-              project: "Nucleus",
-              phase: "planning",
-              subtask_of: taskUuidToUpdate,  // Add parent task UUID
-              orderItems: mergedOrderItems  // Copy all items to Serve task
+        // Backend will automatically create the next task (order_preparation) based on workflow config
+        // Refresh tasks to get the new task created by backend
+        const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
+        if (tableId !== 'N/A') {
+          // Wait a bit for backend to process workflow advancement
+          setTimeout(async () => {
+            await refreshTasksForTable(tableId);
+            // Fetch active tasks to see the new order_preparation task
+            const activeTasks = await fetchActiveTasks(tableId);
+            const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
+            
+            // Find the new order_preparation task for this seat
+            const prepTask = activeTasks.find(t => 
+              t.extensionsData?.seat_id === seatId &&
+              t.extensionsData?.workflow?.current_state === 'order_preparation'
+            );
+            
+            if (prepTask) {
+              setExpandedCard(prev => ({
+                ...prev,
+                currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
+                currentTaskUuid: prepTask.taskUuid
+              }));
             }
-          };
-          
-          console.log('Creating Serve task:', JSON.stringify(serveTaskData, null, 2));
-          const serveTaskResponse = await taskService.createTask(serveTaskData);
-          console.log('Serve task created:', serveTaskResponse);
-          
-          if (serveTaskResponse.taskUuid) {
-            console.log('Serve task UUID:', serveTaskResponse.taskUuid);
-            // Refresh tasks for this table to update the UI
-            if (tableId !== 'N/A') {
-              await refreshTasksForTable(tableId);
-            }
-            // Switch UI to the new Serve task
-          setExpandedCard(prev => ({
-            ...prev,
-              currentTask: { id: 'serve', name: 'Serve', type: 'SERVE' },
-              currentTaskUuid: serveTaskResponse.taskUuid
-            }));
-            setShowMenu(false);
-          }
+          }, 1000);
         }
-        catch (error) {
-          console.error('Error creating Serve task:', error);
-        }
+        setShowMenu(false);
       } else {
         console.warn('No task UUID found to update with order items');
       }
@@ -1604,6 +1788,9 @@ export default function AllTables() {
         console.error('Failed to mark Serve as COMPLETED:', e);
       }
 
+      // Build workflow metadata with current_state = "order_placement" for new order
+      const workflowMetadata = buildWorkflowMetadata("order_placement");
+      
       // Create a new Order task as child of Serve
       const orderTaskData = {
         requestContext: { parentTaskUuid: parentServeUuid },
@@ -1620,7 +1807,8 @@ export default function AllTables() {
           project: 'Nucleus',
           phase: 'planning',
           subtask_of: parentServeUuid,
-          orderItems: previousItems
+          orderItems: previousItems,
+          ...workflowMetadata  // Include workflow metadata
         }
       };
 
@@ -2151,43 +2339,75 @@ export default function AllTables() {
           // Hide menu, show serve interface
           setShowMenu(false);
           
-        } else if (currentTaskType === 'SERVE' || currentTaskType === 'serve') {
-          // We're on Serve task, could create Payment or complete
-          console.log('Serve task completed, creating Payment task');
+        } else if (currentTaskType === 'SERVE' || currentTaskType === 'serve' || currentTaskType === 'PREPARATION' || currentTaskType === 'preparation') {
+          // We're on Serve or Preparation task - mark as COMPLETED to advance workflow
+          // Backend will create the next task (order_serving or bill_issuance) based on workflow config
+          console.log('Marking current task as COMPLETED to advance workflow');
           
-          const paymentTaskKey = `${tableId}-${seatNumber}-Payment`;
-          let paymentTaskUuid = subTaskMapping[paymentTaskKey];
-          
-          if (!paymentTaskUuid) {
-            paymentTaskUuid = await createSubTask(
-              seatTaskUuid,
-              `Payment - Seat ${seatNumber - 1}`,
-              `Payment for Seat ${seatNumber - 1}`,
-              'PAYMENT',
-              {
-                seatNumber: seatNumber,
-                tableId: tableId,
-                taskType: 'PAYMENT'
+          try {
+            // Get current task to preserve workflow metadata
+            let currentTask = null;
+            try {
+              const existingTask = await taskService.getTaskById(expandedCard.currentTaskUuid);
+              currentTask = existingTask?.taskDTO;
+            } catch (e) {
+              console.warn('Could not fetch existing task for workflow metadata');
+            }
+            
+            // Preserve workflow metadata
+            const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_preparation").workflow;
+            
+            // Update task to COMPLETED
+            const updateData = {
+              status: "COMPLETED",
+              extensionsData: {
+                ...(currentTask?.extensionsData || {}),
+                task_status: "COMPLETED",
+                workflow: workflowData
               }
+            };
+            
+            await updateFullTask(expandedCard.currentTaskUuid, updateData);
+            console.log('Task marked as COMPLETED. Backend should advance workflow.');
+            
+            // Refresh tasks to get the new task created by backend
+            await refreshTasksForTable(tableId);
+            const activeTasks = await fetchActiveTasks(tableId);
+            const seatId = seatNumber.toString();
+            
+            // Find the next task based on workflow state
+            // After order_preparation, should be order_serving
+            // After order_serving, should be bill_issuance
+            const nextTask = activeTasks.find(t => 
+              t.extensionsData?.seat_id === seatId &&
+              (t.extensionsData?.workflow?.current_state === 'order_serving' ||
+               t.extensionsData?.workflow?.current_state === 'bill_issuance')
             );
             
-            setSubTaskMapping(prev => ({
-              ...prev,
-              [paymentTaskKey]: paymentTaskUuid
-            }));
+            if (nextTask) {
+              const taskType = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'BILL' : 'SERVE';
+              const taskName = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
+              
+              setExpandedCard(prev => ({
+                ...prev,
+                currentTask: {
+                  id: nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'bill' : 'serve',
+                  name: taskName,
+                  type: taskType
+                },
+                currentTaskUuid: nextTask.taskUuid
+              }));
+            } else {
+              // If no next task found, might be at end of workflow - show bill issuance
+              await handleBillIssuance();
+            }
+          } catch (error) {
+            console.error('Error advancing workflow:', error);
           }
           
-          // Update expanded card to show Payment task
-          setExpandedCard(prev => ({
-            ...prev,
-            currentTask: {
-              id: "payment",
-              name: "Payment",
-              type: "PAYMENT"
-            },
-            currentTaskUuid: paymentTaskUuid
-          }));
-          
+        } else if (currentTaskType === 'BILL' || currentTaskType === 'bill') {
+          // Already at bill issuance - payment should be handled separately
+          console.log('At bill issuance - payment should be handled via payment flow');
         } else {
           // Default fallback - close or return to seats
           setShowSeatPageView(true);

@@ -224,7 +224,7 @@ export const createTableTask = async (tableId, workflowMetadata = null) => {
     workflow: {
       metadata: {
         s3_bucket: 'nucleus-org-silo',
-        s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml',
+        s3_key: 'workflows-state-management/common/restaurant/workflows.yaml',
         version: '1',
         name: 'restaurant_ordering'
       },
@@ -512,11 +512,11 @@ export const organizationService = {
             extensionsData: {
               workflows: [
                 {
-                  config_url: "s3://nucleus-org-silo/workflows-state-management/Restaurants/workflow_restaurants_common.yaml",
+                  config_url: "s3://nucleus-org-silo/workflows-state-management/common/restaurant/workflows.yaml",
                   name: "restaurant_ordering",
                   version: "1",
                   s3_bucket: "nucleus-org-silo",
-                  s3_key: "workflows-state-management/Restaurants/workflow_restaurants_common.yaml"
+                  s3_key: "workflows-state-management/common/restaurant/workflows.yaml"
                 }
               ]
             }

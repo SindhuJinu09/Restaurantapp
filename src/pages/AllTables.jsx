@@ -232,7 +232,7 @@ export default function AllTables() {
           name: 'restaurant_ordering',
           version: '1',
           s3_bucket: 'nucleus-org-silo',
-          s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml'
+          s3_key: 'workflows-state-management/common/restaurant/workflows.yaml'
         });
       }
     };
@@ -268,7 +268,7 @@ export default function AllTables() {
         workflow: {
           metadata: {
             s3_bucket: 'nucleus-org-silo',
-            s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml',
+            s3_key: 'workflows-state-management/common/restaurant/workflows.yaml',
             version: '1',
             name: 'restaurant_ordering'
           },
@@ -616,11 +616,17 @@ export default function AllTables() {
         setShowSeatNumberPrompt(false);
         return;
       }
+      // If no active tasks but seat page view is already open for this table, keep it open
+      // This prevents resetting when tasks are completed (e.g., after placing order)
+      if (showSeatPageView && selectedTableForSeats?.id === row.id) {
+        console.log('No active tasks but seat view already open for this table - keeping it open');
+        return; // Don't reset, just keep current view
+      }
     } catch (e) {
       console.warn('Active task check failed; falling back to creation flow');
     }
 
-    // No active tasks → create table task and proceed to seat selection
+    // No active tasks and seat view not open → create table task and proceed to seat selection
     try {
       // Build workflow metadata with current_state = "table_allocation"
       const workflowMetadata = buildWorkflowMetadata("table_allocation");
@@ -1280,18 +1286,71 @@ export default function AllTables() {
       console.log('Task updated. Backend should advance workflow to bill_issuance.');
       
       // Refresh tasks to get the new bill_issuance task
-      if (tableId) {
+      if (tableId && seatId) {
         setTimeout(async () => {
           await refreshTasksForTable(tableId);
-          const billTasks = getTasksByWorkflowState(tableId, 'bill_issuance');
-          const billTask = billTasks.find(t => t.extensionsData?.seat_id === seatId);
+          const activeTasks = await fetchActiveTasks(tableId);
+          const billTask = activeTasks.find(t => 
+            t.extensionsData?.seat_id === seatId &&
+            t.extensionsData?.workflow?.current_state === 'bill_issuance'
+          );
           
           if (billTask) {
             setExpandedCard(prev => ({
               ...prev,
               currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
-              currentTaskUuid: billTask.taskUuid
+              currentTaskUuid: billTask.taskUuid,
+              workflowState: billTask.extensionsData?.workflow?.current_state,
+              extensionsData: billTask.extensionsData
             }));
+          } else {
+            // Backend didn't create bill_issuance task - create it manually as fallback
+            console.log('[Bill Issuance] Backend didn\'t create bill_issuance task. Creating manually as fallback...');
+            try {
+              const parentTaskUuid = currentTask?.extensionsData?.subtask_of || tableTaskMapping[tableId];
+              const workflowMetadata = buildWorkflowMetadata("bill_issuance");
+              
+              const billTaskData = {
+                requestContext: parentTaskUuid ? { parentTaskUuid } : {},
+                title: 'bill',
+                description: `Bill Issuance - Seat ${seatId}`,
+                assigneeInfo: ASSIGNEE_INFO,
+                dueAt: '2024-12-31T15:00:00',
+                extensionsData: {
+                  seat_id: seatId,
+                  table_id: tableId,
+                  task_status: 'ACTIVE',
+                  status: 'pending',
+                  priority: 'HIGH',
+                  project: 'Nucleus',
+                  phase: 'planning',
+                  subtask_of: parentTaskUuid,
+                  orderItems: currentTask?.extensionsData?.orderItems || [], // Copy orderItems
+                  ...workflowMetadata
+                }
+              };
+              
+              const billResponse = await taskService.createTask(billTaskData);
+              if (billResponse?.taskUuid) {
+                console.log('[Bill Issuance] ✅ Successfully created bill_issuance task:', billResponse.taskUuid);
+                
+                await refreshTasksForTable(tableId);
+                const newTasks = await fetchActiveTasks(tableId);
+                const newBillTask = newTasks.find(t => t.taskUuid === billResponse.taskUuid);
+                
+                if (newBillTask) {
+                  setExpandedCard(prev => ({
+                    ...prev,
+                    currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
+                    currentTaskUuid: newBillTask.taskUuid,
+                    workflowState: newBillTask.extensionsData?.workflow?.current_state,
+                    extensionsData: newBillTask.extensionsData
+                  }));
+                }
+              }
+            } catch (createError) {
+              console.error('[Bill Issuance] Failed to create bill_issuance task manually:', createError);
+            }
           }
         }, 1000);
       }
@@ -1778,6 +1837,10 @@ export default function AllTables() {
         const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
         const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
         
+        // Store these for use in fallback
+        const orderTaskUuid = taskUuidToUpdate;
+        const orderItemsToCopy = mergedOrderItems;
+        
         if (tableId !== 'N/A' && seatId) {
           // Retry logic to find the new task created by backend
           const findNextTask = async (retries = 5, delay = 1000) => {
@@ -1838,29 +1901,79 @@ export default function AllTables() {
             console.log('  3. Backend needs more time to process');
             console.log('[Order Placement] Order was placed successfully. Returning to seat view.');
             
-            // Show success message to user
-            alert(`✅ Order placed successfully!\n\nYour order has been submitted. The kitchen will prepare it shortly.\n\nNote: If the backend workflow system is configured, the order preparation task should appear automatically.`);
+            // Show success message to user (only once, not on every retry)
+            // Removed alert to prevent disruption - order is successfully placed
+            console.log('✅ Order placed successfully! The kitchen will prepare it shortly.');
             
-            // Fallback: Return to seat page view so user can see the updated state
+            // Fallback: Keep the seat page view open so user can see the updated state
+            // Don't reset expandedCard or close seat view - just hide menu
             setShowMenu(false);
-            setShowSeatPageView(true);
-            setExpandedCard(null);
+            // Keep seat page view open - don't reset it
+            // setShowSeatPageView(true); // Already open, don't reset
+            // setExpandedCard(null); // Don't clear - keep current state
             
-            // Refresh tasks one more time after a delay in case backend is slow
-            setTimeout(async () => {
-              await refreshTasksForTable(tableId);
-              const finalTasks = await fetchActiveTasks(tableId);
-              const prepTask = finalTasks.find(t => {
-                const taskSeatId = t.extensionsData?.seat_id?.toString();
-                const taskState = t.extensionsData?.workflow?.current_state;
-                return taskSeatId === seatId && taskState === 'order_preparation';
-              });
+            // Fallback: If backend didn't create the task, create it manually
+            console.log('[Order Placement] Creating order_preparation task manually as fallback...');
+            try {
+              // Get the completed order task to copy orderItems and parent info
+              const completedOrderTask = await taskService.getTaskById(orderTaskUuid);
+              const orderTaskData = completedOrderTask?.taskDTO;
               
-              if (prepTask) {
-                console.log('[Order Placement] ✅ Found order_preparation task on delayed check!');
-                // User can click on the seat again to see the preparation task
+              if (orderTaskData) {
+                // Get parent task UUID from the completed order task
+                const parentTaskUuid = orderTaskData.extensionsData?.subtask_of || 
+                                      tableTaskMapping[tableId];
+                
+                // Build workflow metadata with current_state = "order_preparation"
+                const workflowMetadata = buildWorkflowMetadata("order_preparation");
+                
+                // Create order_preparation task with copied orderItems
+                const prepTaskData = {
+                  requestContext: parentTaskUuid ? { parentTaskUuid } : {},
+                  title: 'preparation',
+                  description: `Order Preparation - Seat ${seatId}`,
+                  assigneeInfo: ASSIGNEE_INFO,
+                  dueAt: '2024-12-31T15:00:00',
+                  extensionsData: {
+                    seat_id: seatId,
+                    table_id: tableId,
+                    task_status: 'ACTIVE',
+                    status: 'pending',
+                    priority: 'HIGH',
+                    project: 'Nucleus',
+                    phase: 'planning',
+                    subtask_of: parentTaskUuid,
+                    orderItems: orderTaskData.extensionsData?.orderItems || orderItemsToCopy, // Copy orderItems
+                    ...workflowMetadata  // Include workflow metadata with order_preparation state
+                  }
+                };
+                
+                console.log('[Order Placement] Creating preparation task:', prepTaskData);
+                const prepResponse = await taskService.createTask(prepTaskData);
+                
+                if (prepResponse?.taskUuid) {
+                  console.log('[Order Placement] ✅ Successfully created order_preparation task:', prepResponse.taskUuid);
+                  
+                  // Refresh tasks and switch to preparation view
+                  await refreshTasksForTable(tableId);
+                  const newTasks = await fetchActiveTasks(tableId);
+                  const newPrepTask = newTasks.find(t => t.taskUuid === prepResponse.taskUuid);
+                  
+                  if (newPrepTask) {
+                    setExpandedCard(prev => ({
+                      ...prev,
+                      currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
+                      currentTaskUuid: newPrepTask.taskUuid,
+                      workflowState: newPrepTask.extensionsData?.workflow?.current_state,
+                      extensionsData: newPrepTask.extensionsData
+                    }));
+                    setShowMenu(false);
+                  }
+                }
               }
-            }, 3000); // Check again after 3 seconds
+            } catch (createError) {
+              console.error('[Order Placement] Failed to create preparation task manually:', createError);
+            }
           };
           
           // Start retry logic after initial delay
@@ -2552,6 +2665,10 @@ export default function AllTables() {
             // Find the next task based on workflow state
             // After order_preparation, should be order_serving
             // After order_serving, should be bill_issuance
+            const currentState = currentTask?.extensionsData?.workflow?.current_state;
+            const nextState = currentState === 'order_preparation' ? 'order_serving' : 
+                            currentState === 'order_serving' ? 'bill_issuance' : null;
+            
             const nextTask = activeTasks.find(t => 
               t.extensionsData?.seat_id === seatId &&
               (t.extensionsData?.workflow?.current_state === 'order_serving' ||
@@ -2569,10 +2686,71 @@ export default function AllTables() {
                   name: taskName,
                   type: taskType
                 },
-                currentTaskUuid: nextTask.taskUuid
+                currentTaskUuid: nextTask.taskUuid,
+                workflowState: nextTask.extensionsData?.workflow?.current_state,
+                extensionsData: nextTask.extensionsData
               }));
+            } else if (nextState) {
+              // Backend didn't create the task - create it manually as fallback
+              console.log(`[Workflow] Backend didn't create ${nextState} task. Creating manually as fallback...`);
+              try {
+                const parentTaskUuid = currentTask?.extensionsData?.subtask_of || tableTaskMapping[tableId];
+                const workflowMetadata = buildWorkflowMetadata(nextState);
+                
+                const nextTaskData = {
+                  requestContext: parentTaskUuid ? { parentTaskUuid } : {},
+                  title: nextState === 'order_serving' ? 'serve' : 'bill',
+                  description: nextState === 'order_serving' ? `Order Serving - Seat ${seatId}` : `Bill Issuance - Seat ${seatId}`,
+                  assigneeInfo: ASSIGNEE_INFO,
+                  dueAt: '2024-12-31T15:00:00',
+                  extensionsData: {
+                    seat_id: seatId,
+                    table_id: tableId,
+                    task_status: 'ACTIVE',
+                    status: 'pending',
+                    priority: 'HIGH',
+                    project: 'Nucleus',
+                    phase: 'planning',
+                    subtask_of: parentTaskUuid,
+                    orderItems: currentTask?.extensionsData?.orderItems || [], // Copy orderItems
+                    ...workflowMetadata
+                  }
+                };
+                
+                const nextTaskResponse = await taskService.createTask(nextTaskData);
+                if (nextTaskResponse?.taskUuid) {
+                  console.log(`[Workflow] ✅ Successfully created ${nextState} task:`, nextTaskResponse.taskUuid);
+                  
+                  await refreshTasksForTable(tableId);
+                  const newTasks = await fetchActiveTasks(tableId);
+                  const newNextTask = newTasks.find(t => t.taskUuid === nextTaskResponse.taskUuid);
+                  
+                  if (newNextTask) {
+                    const taskType = nextState === 'bill_issuance' ? 'BILL' : 'SERVE';
+                    const taskName = nextState === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
+                    
+                    setExpandedCard(prev => ({
+                      ...prev,
+                      currentTask: {
+                        id: nextState === 'bill_issuance' ? 'bill' : 'serve',
+                        name: taskName,
+                        type: taskType
+                      },
+                      currentTaskUuid: newNextTask.taskUuid,
+                      workflowState: newNextTask.extensionsData?.workflow?.current_state,
+                      extensionsData: newNextTask.extensionsData
+                    }));
+                  }
+                }
+              } catch (createError) {
+                console.error(`[Workflow] Failed to create ${nextState} task manually:`, createError);
+                // Fallback to bill issuance if serving task creation fails
+                if (nextState === 'order_serving') {
+                  await handleBillIssuance();
+                }
+              }
             } else {
-              // If no next task found, might be at end of workflow - show bill issuance
+              // If no next task found and no next state, might be at end of workflow - show bill issuance
               await handleBillIssuance();
             }
           } catch (error) {

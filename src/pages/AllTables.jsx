@@ -600,19 +600,15 @@ export default function AllTables() {
       console.warn('Active task check failed; falling back to creation flow');
     }
 
-    // No active tasks → create table task with project parent and proceed to seat selection
+    // No active tasks → create table task and proceed to seat selection
     try {
-      const PROJECT_PARENT_UUID = "aea2f374-9820-4dd3-9808-5d5209ddf896";
-      
       // Build workflow metadata with current_state = "table_allocation"
       const workflowMetadata = buildWorkflowMetadata("table_allocation");
       
       const tableTaskData = {
-        requestContext: {
-          parentTaskUuid: PROJECT_PARENT_UUID
-        },
+        requestContext: {},  // Empty requestContext for table tasks (no parent)
         title: row.id,
-        description: `PARENT TASK TABLE ${row.id}`,
+        description: `Main task for table ${row.id}`,
         assigneeInfo: ASSIGNEE_INFO,
         dueAt: "2024-12-31T15:00:00",
         extensionsData: {
@@ -622,7 +618,6 @@ export default function AllTables() {
           priority: "HIGH",
           project: "Nucleus",
           phase: "planning",
-          subtask_of: PROJECT_PARENT_UUID,
           ...workflowMetadata  // Include workflow metadata
         }
       };
@@ -666,14 +661,57 @@ export default function AllTables() {
   const handleConfirmSeatNumber = async () => {
     if (!tableForSeatNumberPrompt) return;
     try {
+      // First, ensure parent table task exists - create it if it doesn't
       let tableTaskUuid = tableTaskMapping[tableForSeatNumberPrompt.id];
+      
       if (!tableTaskUuid) {
+        // Try to get from existing tasks
         const tasks = await fetchActiveTasks(tableForSeatNumberPrompt.id);
         const anySeat = tasks.find(t => t.extensionsData?.subtask_of);
-        if (anySeat) tableTaskUuid = anySeat.extensionsData.subtask_of;
+        if (anySeat) {
+          tableTaskUuid = anySeat.extensionsData.subtask_of;
+        } else {
+          // Parent task doesn't exist - create it first
+          console.log('Parent table task not found, creating it first...');
+          const workflowMetadata = buildWorkflowMetadata("table_allocation");
+          
+          const tableTaskData = {
+            requestContext: {},  // Empty requestContext for table tasks (no parent)
+            title: tableForSeatNumberPrompt.id,
+            description: `Main task for table ${tableForSeatNumberPrompt.id}`,
+            assigneeInfo: ASSIGNEE_INFO,
+            dueAt: "2024-12-31T15:00:00",
+            extensionsData: {
+              table_id: tableForSeatNumberPrompt.id,
+              task_status: "ACTIVE",
+              status: "pending",
+              priority: "HIGH",
+              project: "Nucleus",
+              phase: "planning",
+              ...workflowMetadata  // Include workflow metadata
+            }
+          };
+          
+          const tableResponse = await taskService.createTask(tableTaskData);
+          if (!tableResponse.taskUuid) {
+            console.error('Failed to create parent table task');
+            alert('Failed to create table task. Please try again.');
+            return;
+          }
+          
+          tableTaskUuid = tableResponse.taskUuid;
+          // Store the table task UUID
+          setTableTaskMapping(prev => ({
+            ...prev,
+            [tableForSeatNumberPrompt.id]: tableTaskUuid
+          }));
+          console.log('Parent table task created successfully:', tableTaskUuid);
+        }
       }
+      
       if (!tableTaskUuid) {
-        console.error('Table task UUID not found');
+        console.error('Table task UUID not found and could not be created');
+        alert('Failed to create table task. Please try again.');
         return;
       }
 
@@ -787,7 +825,9 @@ export default function AllTables() {
         const anySeatTask = tasks.find(t => t.extensionsData?.subtask_of);
         if (anySeatTask) tableTaskUuid = anySeatTask.extensionsData.subtask_of;
         if (!tableTaskUuid) {
-          tableTaskUuid = tableTaskMapping[tableId] || await createTableTask(tableId);
+          // Create parent table task first with workflow metadata
+          const workflowMetadata = buildWorkflowMetadata("table_allocation");
+          tableTaskUuid = tableTaskMapping[tableId] || await createTableTask(tableId, workflowMetadata);
           setTableTaskMapping(prev => ({ ...prev, [tableId]: tableTaskUuid }));
         }
         // Ensure All Seats (99) exists when starting fresh
@@ -860,14 +900,17 @@ export default function AllTables() {
     const mergedSeats = [...new Set([...currentSelectedSeats, ...newSelectedSeats])].sort((a, b) => a - b);
     
     try {
-      // Create table task if it doesn't exist
+      // Create table task if it doesn't exist - parent task must be created first
       let tableTaskUuid = tableTaskMapping[selectedTableForSeats.id];
       if (!tableTaskUuid) {
-        tableTaskUuid = await createTableTask(selectedTableForSeats.id);
+        // Create parent table task first with workflow metadata
+        const workflowMetadata = buildWorkflowMetadata("table_allocation");
+        tableTaskUuid = await createTableTask(selectedTableForSeats.id, workflowMetadata);
         setTableTaskMapping(prev => ({
           ...prev,
           [selectedTableForSeats.id]: tableTaskUuid
         }));
+        console.log('Parent table task created:', tableTaskUuid);
       }
 
       // Create seat tasks for newly selected seats

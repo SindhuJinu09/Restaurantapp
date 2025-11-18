@@ -218,23 +218,38 @@ export const taskService = {
 };
 
 // Helper functions for task creation
-export const createTableTask = async (tableId) => {
+export const createTableTask = async (tableId, workflowMetadata = null) => {
+  // Default workflow metadata if not provided
+  const defaultWorkflowMetadata = workflowMetadata || {
+    workflow: {
+      metadata: {
+        s3_bucket: 'nucleus-org-silo',
+        s3_key: 'workflows-state-management/Restaurants/workflow_restaurants_common.yaml',
+        version: '1',
+        name: 'restaurant_ordering'
+      },
+      current_state: 'table_allocation'
+    }
+  };
+  
   const taskData = {
-    requestContext: {},
-    title: `Table ${tableId}`,
-    description: `Primary task for Table ${tableId}`,
+    requestContext: {},  // Empty requestContext for table tasks (no parent)
+    title: tableId,
+    description: `Main task for table ${tableId}`,
     assigneeInfo: {
       uuid: "9e76e39a-aaeb-47a8-8182-db7d0187e64f",
       idType: "INTERNAL_ID"
     },
     dueAt: "2024-12-31T15:00:00",
     extensionsData: {
+      table_id: tableId,
+      task_status: "ACTIVE",
       status: "pending",
       priority: "HIGH",
-      project: "Restaurant",
+      project: "Nucleus",
       phase: "planning",
-      tableId: tableId,
-      taskType: "TABLE"
+      taskType: "TABLE",
+      ...defaultWorkflowMetadata  // Include workflow metadata
     }
   };
 

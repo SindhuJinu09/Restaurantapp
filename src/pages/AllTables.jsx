@@ -358,6 +358,29 @@ export default function AllTables() {
         return orderItems.every(item => item.served === true);
       }
       
+      // Check if this is a SERVE/order_serving task (workflow-based)
+      const isServeTask = expandedCard.currentTask?.type === 'SERVE' || 
+                         currentTaskId === 'serve' || 
+                         expandedCard.workflowState === 'order_serving';
+      
+      if (isServeTask) {
+        // For serve tasks, check if all items are served
+        const orderItems = expandedCard.extensionsData?.orderItems || [];
+        if (orderItems.length === 0) return false;
+        // Check if all items have served: true
+        return orderItems.every(item => item.served === true);
+      }
+      
+      // Check if this is a BILL/bill_issuance task (workflow-based)
+      const isBillTask = expandedCard.currentTask?.type === 'BILL' || 
+                        currentTaskId === 'bill' || 
+                        expandedCard.workflowState === 'bill_issuance';
+      
+      if (isBillTask) {
+        // For bill tasks, always allow proceeding (payment is handled separately)
+        return true;
+      }
+      
       switch (currentTaskId) {
         case "1": // Assign Table
           // Only active when status is changed from "Empty" to "Seated"
@@ -1086,23 +1109,35 @@ export default function AllTables() {
       const failCount = results.filter(r => !r.success).length;
       console.log(`[Clear Table] Updated ${successCount} tasks successfully, ${failCount} failed`);
       
-      // Wait a bit for backend to process all updates
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait longer for backend to process all updates (increased from 500ms to 2s)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Refresh tasks from backend
+      // Refresh tasks from backend - force refresh
       console.log('[Clear Table] Refreshing tasks for table:', tableId);
       await refreshTasksForTable(tableId);
       
-      // Double-check: fetch again to verify
+      // Double-check: fetch again to verify - wait a bit more
+      await new Promise(resolve => setTimeout(resolve, 1000));
       const verifyTasks = await fetchActiveTasks(tableId);
       const remainingActive = verifyTasks.filter(t => {
         const taskStatus = t.extensionsData?.task_status;
-        return taskStatus === "ACTIVE" || 
-               (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+        const hasWorkflow = t.extensionsData?.workflow?.current_state;
+        // Task is active if: ACTIVE status OR (COMPLETED status AND has workflow state)
+        const isActive = taskStatus === "ACTIVE" || (taskStatus === "COMPLETED" && hasWorkflow);
+        if (isActive) {
+          console.log(`[Clear Table] Still active task found: ${t.taskUuid}, title=${t.title}, task_status=${taskStatus}, has_workflow=${!!hasWorkflow}`);
+        }
+        return isActive;
       });
       
       if (remainingActive.length > 0) {
-        console.warn(`[Clear Table] ⚠️ Still found ${remainingActive.length} active tasks after clearing. This may indicate backend update delay.`);
+        console.warn(`[Clear Table] ⚠️ Still found ${remainingActive.length} active tasks after clearing. This may indicate backend update delay or workflow property not removed.`);
+        console.warn(`[Clear Table] Remaining active tasks:`, remainingActive.map(t => ({
+          uuid: t.taskUuid,
+          title: t.title,
+          task_status: t.extensionsData?.task_status,
+          has_workflow: !!t.extensionsData?.workflow
+        })));
       } else {
         console.log('[Clear Table] ✅ All tasks cleared successfully - no active tasks remaining');
       }
@@ -1369,13 +1404,26 @@ export default function AllTables() {
       // Preserve workflow metadata
       const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_serving").workflow;
       
+      // Helper to convert dueAt to ISO string (handles array, Date, or string)
+      const formatDueAt = (dueAt) => {
+        if (!dueAt) return '2025-12-31T15:00:00';
+        if (typeof dueAt === 'string') return dueAt;
+        if (Array.isArray(dueAt)) {
+          // Array format: [2025, 12, 31, 15, 0] -> ISO string
+          const [year, month, day, hour = 15, minute = 0] = dueAt;
+          return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+        }
+        if (dueAt instanceof Date) return dueAt.toISOString();
+        return '2025-12-31T15:00:00';
+      };
+      
       // Update task to COMPLETED to trigger workflow advancement to bill_issuance
       // Backend requires title and dueAt to be present (not null)
       const updateData = {
         title: currentTask?.title || expandedCard.currentTask?.name || 'Order Serving',
         description: currentTask?.description || expandedCard.currentTask?.name || 'Order Serving',
         status: "COMPLETED",
-        dueAt: currentTask?.dueAt || '2025-12-31T15:00:00',
+        dueAt: formatDueAt(currentTask?.dueAt),
         extensionsData: {
           ...(currentTask?.extensionsData || {}),
           task_status: "COMPLETED",
@@ -2909,13 +2957,26 @@ export default function AllTables() {
             // Preserve workflow metadata
             const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_preparation").workflow;
             
+            // Helper to convert dueAt to ISO string (handles array, Date, or string)
+            const formatDueAt = (dueAt) => {
+              if (!dueAt) return '2025-12-31T15:00:00';
+              if (typeof dueAt === 'string') return dueAt;
+              if (Array.isArray(dueAt)) {
+                // Array format: [2025, 12, 31, 15, 0] -> ISO string
+                const [year, month, day, hour = 15, minute = 0] = dueAt;
+                return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+              }
+              if (dueAt instanceof Date) return dueAt.toISOString();
+              return '2025-12-31T15:00:00';
+            };
+            
             // Update task to COMPLETED
             // Backend requires title and dueAt to be present (not null)
             const updateData = {
               title: currentTask?.title || expandedCard.currentTask?.name || 'Order Preparation',
               description: currentTask?.description || expandedCard.currentTask?.name || 'Order Preparation',
               status: "COMPLETED",
-              dueAt: currentTask?.dueAt || '2025-12-31T15:00:00',
+              dueAt: formatDueAt(currentTask?.dueAt),
               extensionsData: {
                 ...(currentTask?.extensionsData || {}),
                 task_status: "COMPLETED",
@@ -4090,7 +4151,7 @@ export default function AllTables() {
                           </button>
                         </div>
                       </div>
-                    ) : (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE" || expandedCard.currentTask.type === "PREPARATION" || expandedCard.currentTask.id === "preparation") ? (
+                    ) : (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE" || expandedCard.workflowState === 'order_serving' || expandedCard.currentTask.type === "PREPARATION" || expandedCard.currentTask.id === "preparation") ? (
                       <div className="space-y-4">
                         {/* Order Summary Header */}
                         <div className="text-center mb-4">
@@ -4420,7 +4481,7 @@ export default function AllTables() {
             {/* Footer - Copy from Bar Seat */}
             <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-purple-50">
               <div className="flex items-center gap-2">
-                {(expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") && (
+                {(expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE" || expandedCard.workflowState === 'order_serving') && (
                   <button
                     onClick={handleOrderMoreClick}
                     className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
@@ -4462,6 +4523,14 @@ export default function AllTables() {
                     // For PREPARATION tasks, use handleNextTask (workflow-based)
                     const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || expandedCard.currentTask?.id === 'preparation';
                     if (isPreparationTask) {
+                      handleNextTask();
+                      return;
+                    }
+                    // For SERVE/order_serving tasks, use handleNextTask (workflow-based)
+                    const isServeTask = expandedCard.currentTask?.type === 'SERVE' || 
+                                       expandedCard.currentTask?.id === 'serve' || 
+                                       expandedCard.workflowState === 'order_serving';
+                    if (isServeTask) {
                       handleNextTask();
                       return;
                     }
@@ -5249,22 +5318,9 @@ export default function AllTables() {
           {/* Footer */}
           <div className="p-3 md:p-6 border-t-2 border-gray-200 bg-gradient-to-r from-gray-50 to-blue-50">
               <div className="flex items-center gap-2">
-              {expandedCard && (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE") && (
+              {expandedCard && (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE" || expandedCard.workflowState === 'order_serving') && (
                 <button
-                  onClick={() => {
-                    // Immediately jump to Order task when clicking Order More in Serve
-                    if (expandedCard && (expandedCard.currentTask.id === "4" || expandedCard.currentTask.id === "serve" || expandedCard.currentTask.type === "SERVE")) {
-                      const idx = rows.findIndex(r => r.id === expandedCard.id);
-                      if (idx !== -1) {
-                        const nextRows = [...rows];
-                        nextRows[idx].currentTaskIndex = 2; // Order task index
-                        nextRows[idx].currentTask = { ...taskFlow[2] };
-                        setRows(nextRows);
-                        setExpandedCard(nextRows[idx]);
-                        setOrderMoreSelected(false);
-                      }
-                    }
-                  }}
+                  onClick={handleOrderMoreClick}
                   className={`flex-1 h-8 md:h-11 px-3 md:px-4 rounded-xl border-2 transition-all duration-200 flex items-center justify-center gap-2 shadow-md ${
                     orderMoreSelected 
                       ? 'border-green-400 bg-green-100 text-green-700 hover:bg-green-200' 

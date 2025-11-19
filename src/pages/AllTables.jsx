@@ -232,7 +232,7 @@ export default function AllTables() {
           name: 'restaurant_ordering',
           version: '1',
           s3_bucket: 'nucleus-org-silo',
-          s3_key: 'workflows-state-management/common/restaurant/workflows.yaml'
+          s3_key: 'workflows-state-management/AkshayTestRestaurant1000/restaurant_ordering_v1.yaml'
         });
       }
     };
@@ -268,7 +268,7 @@ export default function AllTables() {
         workflow: {
           metadata: {
             s3_bucket: 'nucleus-org-silo',
-            s3_key: 'workflows-state-management/common/restaurant/workflows.yaml',
+            s3_key: 'workflows-state-management/AkshayTestRestaurant1000/restaurant_ordering_v1.yaml',
             version: '1',
             name: 'restaurant_ordering'
           },
@@ -1041,7 +1041,20 @@ export default function AllTables() {
       const active = tasks.filter(isActiveTask);
       console.log('[Clear Table] Active tasks to clear:', active.length);
       
-      await Promise.all(active.map(async (t) => {
+      if (active.length === 0) {
+        console.log('[Clear Table] No active tasks to clear');
+        return;
+      }
+      
+      // Clear local state immediately to prevent UI from showing stale data
+      setActiveTasksForTable(prev => {
+        const updated = { ...prev };
+        updated[tableId] = [];
+        return updated;
+      });
+      
+      // Update all tasks in backend - wait for all to complete
+      const updatePromises = active.map(async (t) => {
         const existingExt = t.extensionsData || {};
         // Remove workflow state to ensure task is no longer considered active
         const { workflow, ...extensionsWithoutWorkflow } = existingExt;
@@ -1060,13 +1073,40 @@ export default function AllTables() {
           console.log('[Clear Table] Clearing task:', t.taskUuid, t.title);
           await updateFullTask(t.taskUuid, updateData);
           console.log('[Clear Table] Successfully cleared task:', t.taskUuid);
+          return { success: true, taskUuid: t.taskUuid };
         } catch (e) {
           console.error('[Clear Table] Failed to complete task', t.taskUuid, e);
+          return { success: false, taskUuid: t.taskUuid, error: e };
         }
-      }));
+      });
       
+      // Wait for all updates to complete
+      const results = await Promise.all(updatePromises);
+      const successCount = results.filter(r => r.success).length;
+      const failCount = results.filter(r => !r.success).length;
+      console.log(`[Clear Table] Updated ${successCount} tasks successfully, ${failCount} failed`);
+      
+      // Wait a bit for backend to process all updates
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Refresh tasks from backend
       console.log('[Clear Table] Refreshing tasks for table:', tableId);
       await refreshTasksForTable(tableId);
+      
+      // Double-check: fetch again to verify
+      const verifyTasks = await fetchActiveTasks(tableId);
+      const remainingActive = verifyTasks.filter(t => {
+        const taskStatus = t.extensionsData?.task_status;
+        return taskStatus === "ACTIVE" || 
+               (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
+      });
+      
+      if (remainingActive.length > 0) {
+        console.warn(`[Clear Table] ⚠️ Still found ${remainingActive.length} active tasks after clearing. This may indicate backend update delay.`);
+      } else {
+        console.log('[Clear Table] ✅ All tasks cleared successfully - no active tasks remaining');
+      }
+      
       console.log('[Clear Table] Table cleared successfully');
     } catch (e) {
       console.error('[Clear Table] Error clearing table backend:', e);

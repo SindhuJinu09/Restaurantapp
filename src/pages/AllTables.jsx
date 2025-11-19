@@ -2324,20 +2324,48 @@ export default function AllTables() {
       // Switch UI to the new Order task and open menu
       if (orderResp?.taskUuid) {
         await ensureMenuLoaded();
-        setExpandedCard(prev => ({
-          ...prev,
-          currentTask: { id: 'order', name: 'Order', type: 'ORDER' },
-          currentTaskUuid: orderResp.taskUuid,
-          workflowState: 'order_placement',
-          extensionsData: {
-            ...(prev.extensionsData || {}),
-            orderItems: allOrderItems // Preserve aggregated items in expandedCard
-          }
-        }));
+        
+        // Fetch the newly created task to get its full data including workflow state
+        let newTaskData = null;
+        try {
+          const taskResponse = await taskService.getTaskById(orderResp.taskUuid);
+          newTaskData = taskResponse?.taskDTO;
+        } catch (e) {
+          console.warn('[Order More] Could not fetch new task data, using response data');
+        }
+        
+        // Set expandedCard with workflow state and ensure menu shows
+        // Set menu state immediately before updating expandedCard to avoid race condition
         setShowMenu(true);
         setShowCart(false);
+        
+        setExpandedCard(prev => {
+          const updatedExtensionsData = {
+            ...(newTaskData?.extensionsData || prev.extensionsData || {}),
+            orderItems: allOrderItems, // Preserve aggregated items in expandedCard
+            workflow: newTaskData?.extensionsData?.workflow || {
+              metadata: {
+                s3_bucket: 'nucleus-org-silo',
+                s3_key: 'workflows-state-management/AkshayTestRestaurant1000/restaurant_ordering_v1.yaml',
+                version: '1',
+                name: 'restaurant_ordering'
+              },
+              current_state: 'order_placement'
+            }
+          };
+          
+          return {
+            ...prev,
+            currentTask: { id: 'order', name: 'Order', type: 'ORDER' },
+            currentTaskUuid: orderResp.taskUuid,
+            workflowState: 'order_placement',
+            extensionsData: updatedExtensionsData
+          };
+        });
+        
         console.log('[Order More] ✅ Switched to Order task and opened menu:', orderResp.taskUuid);
         console.log('[Order More] Aggregated orderItems count:', allOrderItems.length);
+        console.log('[Order More] Menu should be visible, showMenu:', true);
       }
     } catch (e) {
       console.error('Error in Order More flow:', e);

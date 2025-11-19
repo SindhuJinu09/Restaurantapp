@@ -1966,7 +1966,9 @@ export default function AllTables() {
           taskTitle = `Table ${expandedCard.id}`;
         }
         
-        // Merge any existing order items (important for Order More flow)
+        // For "Order More" flow: Only add NEW items from cart, don't merge with existing items
+        // Existing items in the task are from previous orders and should NOT be duplicated
+        // The bill calculation will aggregate from all order_placement tasks separately
         let existingOrderItems = [];
         try {
           const existingOrder = await taskService.getTaskById(taskUuidToUpdate);
@@ -1974,7 +1976,12 @@ export default function AllTables() {
         } catch (e) {
           console.warn('Could not fetch existing order items; proceeding with current cart only');
         }
-        const mergedOrderItems = [...existingOrderItems, ...apiOrderItems];
+        
+        // Only merge if existing items are empty (first order) or if we're not in "Order More" flow
+        // For "Order More", the task starts with empty orderItems, so we only add new items
+        const mergedOrderItems = existingOrderItems.length === 0 
+          ? apiOrderItems  // First order: just use new items
+          : [...existingOrderItems, ...apiOrderItems];  // Subsequent orders: merge (shouldn't happen with new logic)
 
         // Get current task to preserve workflow metadata
         let currentTask = null;
@@ -2282,7 +2289,7 @@ export default function AllTables() {
          (t.title === 'order' && t.extensionsData?.workflow?.current_state === 'order_placement'))
       );
       
-      // Collect all orderItems from previous orders
+      // Collect all orderItems from previous orders (for UI display only, not for storing in new task)
       orderTasks.forEach(task => {
         const taskOrderItems = task.extensionsData?.orderItems || [];
         taskOrderItems.forEach(item => {
@@ -2290,12 +2297,14 @@ export default function AllTables() {
         });
       });
       
-      console.log(`[Order More] Found ${orderTasks.length} previous order tasks for seat ${seatId}, aggregating ${allOrderItems.length} items`);
+      console.log(`[Order More] Found ${orderTasks.length} previous order tasks for seat ${seatId}, aggregating ${allOrderItems.length} items for display`);
 
       // Build workflow metadata with current_state = "order_placement" for new order
       const workflowMetadata = buildWorkflowMetadata("order_placement");
 
       // Create a new Order task as child of table task (not serve task)
+      // IMPORTANT: Start with EMPTY orderItems - only new items will be added when order is placed
+      // Previous items are only for UI display, not stored in this task to avoid duplicates in bill
       const orderTaskData = {
         requestContext: { parentTaskUuid: tableTaskUuid },
         title: 'order',
@@ -2311,7 +2320,7 @@ export default function AllTables() {
           project: 'Nucleus',
           phase: 'planning',
           subtask_of: tableTaskUuid, // Use table task as parent
-          orderItems: allOrderItems, // Include all previous items for aggregation
+          orderItems: [], // Start empty - only new items will be added, preventing duplicates
           ...workflowMetadata  // Include workflow metadata
         }
       };

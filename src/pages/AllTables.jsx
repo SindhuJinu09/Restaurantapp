@@ -2274,14 +2274,12 @@ export default function AllTables() {
       const tasks = activeTasksForTable[tableId] || [];
       const allOrderItems = [];
       
-      // Find all order tasks for this seat (including previous "Order More" tasks)
+      // Find all order_placement tasks for this seat (ONLY order_placement, not preparation/serving/payment)
+      // This prevents duplicate items from being aggregated
       const orderTasks = tasks.filter(t => 
         t.extensionsData?.seat_id === seatId &&
         (t.extensionsData?.workflow?.current_state === 'order_placement' ||
-         t.title === 'order' ||
-         (t.extensionsData?.workflow?.current_state === 'order_preparation' && t.extensionsData?.orderItems?.length > 0) ||
-         (t.extensionsData?.workflow?.current_state === 'order_serving' && t.extensionsData?.orderItems?.length > 0) ||
-         (t.extensionsData?.workflow?.current_state === 'payment_collection' && t.extensionsData?.orderItems?.length > 0))
+         (t.title === 'order' && t.extensionsData?.workflow?.current_state === 'order_placement'))
       );
       
       // Collect all orderItems from previous orders
@@ -4379,14 +4377,12 @@ export default function AllTables() {
                                 // Get all tasks for this table to aggregate orderItems from all order tasks
                                 const allTableTasks = activeTasksForTable[tableId] || [];
                                 
-                                // Find all order tasks for this seat (including "Order More" tasks)
+                                // Find all order_placement tasks for this seat (ONLY order_placement, not preparation/serving/payment)
+                                // This prevents duplicate items from being counted in the bill
                                 const orderTasks = allTableTasks.filter(t => 
                                   t.extensionsData?.seat_id === seatId &&
                                   (t.extensionsData?.workflow?.current_state === 'order_placement' ||
-                                   t.title === 'order' ||
-                                   (t.extensionsData?.workflow?.current_state === 'order_preparation' && t.extensionsData?.orderItems?.length > 0) ||
-                                   (t.extensionsData?.workflow?.current_state === 'order_serving' && t.extensionsData?.orderItems?.length > 0) ||
-                                   (t.extensionsData?.workflow?.current_state === 'payment_collection' && t.extensionsData?.orderItems?.length > 0))
+                                   (t.title === 'order' && t.extensionsData?.workflow?.current_state === 'order_placement'))
                                 );
                                 
                                 // Aggregate orderItems from all order tasks for this seat

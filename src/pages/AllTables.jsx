@@ -348,6 +348,16 @@ export default function AllTables() {
       
       if (!seatData) return false;
       
+      // Check if this is a PREPARATION task
+      const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || currentTaskId === 'preparation';
+      
+      if (isPreparationTask) {
+        // For preparation tasks, check if all items are prepared (served)
+        const orderItems = expandedCard.extensionsData?.orderItems || [];
+        if (orderItems.length === 0) return false;
+        return orderItems.every(item => item.served === true);
+      }
+      
       switch (currentTaskId) {
         case "1": // Assign Table
           // Only active when status is changed from "Empty" to "Seated"
@@ -1018,7 +1028,10 @@ export default function AllTables() {
   // Mark all ACTIVE tasks for a table as COMPLETED in backend
   const clearTableBackend = async (tableId) => {
     try {
+      console.log('[Clear Table] Starting to clear table:', tableId);
       const tasks = activeTasksForTable[tableId] || [];
+      console.log('[Clear Table] Found tasks:', tasks.length);
+      
       // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
       const isActiveTask = (t) => {
         const taskStatus = t.extensionsData?.task_status;
@@ -1026,24 +1039,38 @@ export default function AllTables() {
                (taskStatus === "COMPLETED" && t.extensionsData?.workflow?.current_state);
       };
       const active = tasks.filter(isActiveTask);
+      console.log('[Clear Table] Active tasks to clear:', active.length);
+      
       await Promise.all(active.map(async (t) => {
         const existingExt = t.extensionsData || {};
+        // Remove workflow state to ensure task is no longer considered active
+        const { workflow, ...extensionsWithoutWorkflow } = existingExt;
         const updateData = {
           title: t.title,
           description: t.description || '',
-          status: 'IN_PROGRESS',
+          status: 'COMPLETED',
           dueAt: '2025-12-31T15:00:00',
-          extensionsData: { ...existingExt, task_status: 'COMPLETED' }
+          extensionsData: { 
+            ...extensionsWithoutWorkflow, 
+            task_status: 'COMPLETED'
+            // workflow is removed so task won't be considered active
+          }
         };
         try {
+          console.log('[Clear Table] Clearing task:', t.taskUuid, t.title);
           await updateFullTask(t.taskUuid, updateData);
+          console.log('[Clear Table] Successfully cleared task:', t.taskUuid);
         } catch (e) {
-          console.error('Failed to complete task', t.taskUuid, e);
+          console.error('[Clear Table] Failed to complete task', t.taskUuid, e);
         }
       }));
+      
+      console.log('[Clear Table] Refreshing tasks for table:', tableId);
       await refreshTasksForTable(tableId);
+      console.log('[Clear Table] Table cleared successfully');
     } catch (e) {
-      console.error('Error clearing table backend:', e);
+      console.error('[Clear Table] Error clearing table backend:', e);
+      throw e; // Re-throw to allow caller to handle
     }
   };
 
@@ -1127,7 +1154,7 @@ export default function AllTables() {
     // Create a seat object from backend task data
     // Include workflow state information
     const workflowState = seatTask.extensionsData?.workflow?.current_state || 'order_placement';
-    const seatObject = {
+      const seatObject = {
         id: `${tableId}-S${seatNumber}`,
         seatNumber: seatNumber,
         tableId: tableId,
@@ -1136,14 +1163,14 @@ export default function AllTables() {
           name: seatTask.title === "serve" ? "Serve" : seatTask.title === "order" ? "Order" : seatTask.title === "payment" ? "Payment" : (seatTask.title || "Order"),
           type: (seatTask.title || "ORDER").toUpperCase()
         },
-        currentTaskUuid: seatTask.taskUuid,
-        seatTaskUuid: seatTask.taskUuid,
+      currentTaskUuid: seatTask.taskUuid,
+      seatTaskUuid: seatTask.taskUuid,
         workflowState: workflowState, // Store workflow state for menu visibility
         extensionsData: seatTask.extensionsData, // Store full extensions data
-        minutes: 0, // Can be calculated from createdAt if needed
-        status: "Pending",
-        orderMoreNext: false,
-        serveHistory: serveHistory,
+      minutes: 0, // Can be calculated from createdAt if needed
+      status: "Pending",
+      orderMoreNext: false,
+      serveHistory: serveHistory,
         selectedSeats: [seatNumber]
       };
     
@@ -1160,10 +1187,10 @@ export default function AllTables() {
       
       if (isOrderPlacement) {
         try { await ensureMenuLoaded(); } catch {}
-        setShowMenu(true);
+      setShowMenu(true);
       } else {
         setShowMenu(false);
-      }
+    }
   };
 
   const handleBarSeatClick = (seat) => {
@@ -1857,7 +1884,7 @@ export default function AllTables() {
         
         // Preserve workflow metadata and update current_state if needed
         const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_placement").workflow;
-        
+
         // Update task with merged order items in extensionsData (matching Postman format)
         // Set status to COMPLETED so backend can advance workflow
         const updateData = {
@@ -1879,7 +1906,7 @@ export default function AllTables() {
         
         // Backend will automatically create the next task (order_preparation) based on workflow config
         // Refresh tasks to get the new task created by backend
-        const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
+          const tableId = expandedCard.tableId || expandedCard.seat?.tableId || 'N/A';
         const seatId = expandedCard.seat?.id ? expandedCard.seat.id.toString() : expandedCard.seatNumber?.toString();
         
         // Store these for use in fallback
@@ -2045,11 +2072,11 @@ export default function AllTables() {
                   requestContext: parentTaskUuid ? { parentTaskUuid } : {},
                   title: 'preparation',
                   description: `Order Preparation - Seat ${seatId}`,
-                  assigneeInfo: ASSIGNEE_INFO,
+            assigneeInfo: ASSIGNEE_INFO,
                   dueAt: '2024-12-31T15:00:00',
-                  extensionsData: {
-                    seat_id: seatId,
-                    table_id: tableId,
+            extensionsData: {
+              seat_id: seatId,
+              table_id: tableId,
                     task_status: 'ACTIVE',
                     status: 'pending',
                     priority: 'HIGH',
@@ -2071,21 +2098,21 @@ export default function AllTables() {
                   console.log('[Order Placement] ⚠️ Backend workflow automation is NOT working - using frontend fallback');
                   
                   // Refresh tasks and switch to preparation view
-                  await refreshTasksForTable(tableId);
+              await refreshTasksForTable(tableId);
                   const newTasks = await fetchActiveTasks(tableId);
                   const newPrepTask = newTasks.find(t => t.taskUuid === prepResponse.taskUuid);
                   
                   if (newPrepTask) {
-                    setExpandedCard(prev => ({
-                      ...prev,
+          setExpandedCard(prev => ({
+            ...prev,
                       currentTask: { id: 'preparation', name: 'Order Preparation', type: 'PREPARATION' },
                       currentTaskUuid: newPrepTask.taskUuid,
                       workflowState: newPrepTask.extensionsData?.workflow?.current_state,
                       extensionsData: newPrepTask.extensionsData
-                    }));
-                    setShowMenu(false);
-                  }
-                }
+            }));
+            setShowMenu(false);
+          }
+        }
               }
             } catch (createError) {
               console.error('[Order Placement] Failed to create preparation task manually:', createError);
@@ -2158,7 +2185,7 @@ export default function AllTables() {
 
       // Build workflow metadata with current_state = "order_placement" for new order
       const workflowMetadata = buildWorkflowMetadata("order_placement");
-      
+
       // Create a new Order task as child of Serve
       const orderTaskData = {
         requestContext: { parentTaskUuid: parentServeUuid },
@@ -2504,6 +2531,71 @@ export default function AllTables() {
       const seatId = (expandedCard.seat?.id ?? expandedCard.seatNumber)?.toString();
       if (!tableId || !seatId) return;
 
+      // Check if we're on a PREPARATION task - update the preparation task instead of serve task
+      const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || expandedCard.currentTask?.id === 'preparation';
+      
+      if (isPreparationTask && expandedCard.currentTaskUuid) {
+        // Update preparation task's orderItems
+        const allItems = expandedCard.extensionsData?.orderItems || [];
+        
+        // Group items by orderTimestamp (same logic as newGetServeOrders)
+        const groups = new Map();
+        for (const it of allItems) {
+          const ts = it.orderTimestamp || 'UNKNOWN';
+          if (!groups.has(ts)) groups.set(ts, []);
+          groups.get(ts).push(it);
+        }
+        const sortedTimestamps = Array.from(groups.keys()).sort((a, b) => {
+          if (a === 'UNKNOWN') return 1;
+          if (b === 'UNKNOWN') return -1;
+          return new Date(a).getTime() - new Date(b).getTime();
+        });
+        const tsKey = sortedTimestamps[orderIndex];
+        const targetGroup = groups.get(tsKey) || [];
+        const target = targetGroup[itemIndex];
+        if (!target) return;
+
+        // Find the item in the flat list
+        const idx = allItems.findIndex(it => 
+          (it.orderTimestamp || 'UNKNOWN') === (target.orderTimestamp || 'UNKNOWN') && 
+          it.id === target.id
+        );
+        if (idx === -1) return;
+
+        const updatedItems = [...allItems];
+        updatedItems[idx] = {
+          ...updatedItems[idx],
+          orderStatus: isServed ? 'PREPARED' : 'ORDERED',
+          served: !!isServed,
+          kitchenStatus: isServed ? 'Ready' : (updatedItems[idx].kitchenStatus || 'Preparing')
+        };
+
+        // Update the preparation task
+        await updateFullTask(expandedCard.currentTaskUuid, {
+          title: expandedCard.currentTask?.name || 'preparation',
+          description: expandedCard.currentTask?.name || 'Order Preparation',
+          status: 'IN_PROGRESS',
+          dueAt: '2025-12-31T15:00:00',
+          extensionsData: {
+            ...(expandedCard.extensionsData || {}),
+            orderItems: updatedItems
+          }
+        });
+
+        // Refresh tasks and update expandedCard
+        await refreshTasksForTable(tableId);
+        const updatedTasks = await fetchActiveTasks(tableId);
+        const updatedPrepTask = updatedTasks.find(t => t.taskUuid === expandedCard.currentTaskUuid);
+        if (updatedPrepTask) {
+          setExpandedCard(prev => ({
+            ...prev,
+            extensionsData: updatedPrepTask.extensionsData
+          }));
+        }
+        return;
+      }
+
+      // For SERVE tasks, use the existing logic
       const tasks = activeTasksForTable[tableId] || [];
       // Helper to check if task is active (ACTIVE or COMPLETED with workflow state)
       const isActiveTask = (t) => {
@@ -2820,7 +2912,7 @@ export default function AllTables() {
               const taskName = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
               
               setExpandedCard(prev => ({
-                ...prev,
+              ...prev,
                 currentTask: {
                   id: nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'bill' : 'serve',
                   name: taskName,
@@ -2871,9 +2963,9 @@ export default function AllTables() {
                     const taskType = nextState === 'bill_issuance' ? 'BILL' : 'SERVE';
                     const taskName = nextState === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
                     
-                    setExpandedCard(prev => ({
-                      ...prev,
-                      currentTask: {
+          setExpandedCard(prev => ({
+            ...prev,
+            currentTask: {
                         id: nextState === 'bill_issuance' ? 'bill' : 'serve',
                         name: taskName,
                         type: taskType
@@ -4318,7 +4410,14 @@ export default function AllTables() {
                 {!(expandedCard.currentTask.id === "3" || expandedCard.currentTask.id === "order" || expandedCard.currentTask.type === "ORDER" || showMenu) && (
                 <button
                   onClick={() => {
-                    // Handle next task for table seat
+                    // For PREPARATION tasks, use handleNextTask (workflow-based)
+                    const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || expandedCard.currentTask?.id === 'preparation';
+                    if (isPreparationTask) {
+                      handleNextTask();
+                      return;
+                    }
+                    
+                    // For other tasks, use the old task flow logic
                     setTableSeats(prev => {
                       const updatedSeats = { ...prev };
                       const tableId = expandedCard.tableId;
@@ -5293,63 +5392,76 @@ export default function AllTables() {
                 setShowSeatNumberPrompt(true);
               }}
               onClearTable={async () => {
-                const tableId = selectedTableForSeats.id;
-                await clearTableBackend(tableId);
-                setTableSeats(prev => {
-                  const updatedSeats = { ...prev };
-                  if (updatedSeats[tableId]) {
-                    Object.keys(updatedSeats[tableId]).forEach(seatId => {
-                      updatedSeats[tableId][seatId] = {
-                        ...updatedSeats[tableId][seatId],
-                        currentTaskIndex: 0,
-                        currentTask: { ...taskFlow[0] },
-                        minutes: 0,
-                        status: "Pending",
-                        orderMoreNext: false,
-                        serveHistory: []
-                      };
-                    });
-                  }
-                  return updatedSeats;
-                });
-                setTableCarts(prev => {
-                  const updatedCarts = { ...prev };
-                  const currentSeats = tableSeats[tableId];
-                  if (currentSeats) {
-                    Object.keys(currentSeats).forEach(seatId => {
-                      const seatKey = `${tableId}-S${seatId}`;
-                      updatedCarts[seatKey] = [];
-                    });
-                  }
-                  return updatedCarts;
-                });
-                setRows(prev => prev.map(row => 
-                  row.id === tableId 
-                    ? { 
-                        ...row, 
-                        selectedSeats: [],
-                        currentTaskIndex: 0,
-                        currentTask: { ...taskFlow[0] },
-                        minutes: 0,
-                        status: "Available",
-                        serveHistory: []
-                      }
-                    : row
-                ));
-                setQuantities({});
-                setCartNote('');
-                setShowMenu(false);
-                setShowCart(false);
-                setShowComments(false);
-                setActiveOrderTab("1");
-                setSelectedSeatsForTable([]);
-                setTableSeats(prev => {
-                  const updated = { ...prev };
-                  delete updated[tableId];
-                  return updated;
-                });
-                setShowSeatPageView(false);
-                setSelectedTableForSeats(null);
+                try {
+                  const tableId = selectedTableForSeats.id;
+                  console.log('[Clear Table] Clearing table from UI:', tableId);
+                  
+                  // Clear backend tasks first
+                  await clearTableBackend(tableId);
+                  
+                  // Refresh tasks to get updated state
+                  await fetchActiveTasks(tableId);
+                  
+                  // Clear frontend state
+                  setTableSeats(prev => {
+                    const updatedSeats = { ...prev };
+                    if (updatedSeats[tableId]) {
+                      Object.keys(updatedSeats[tableId]).forEach(seatId => {
+                        updatedSeats[tableId][seatId] = {
+                          ...updatedSeats[tableId][seatId],
+                          currentTaskIndex: 0,
+                          currentTask: { ...taskFlow[0] },
+                          minutes: 0,
+                          status: "Pending",
+                          orderMoreNext: false,
+                          serveHistory: []
+                        };
+                      });
+                    }
+                    return updatedSeats;
+                  });
+                  setTableCarts(prev => {
+                    const updatedCarts = { ...prev };
+                    const currentSeats = tableSeats[tableId];
+                    if (currentSeats) {
+                      Object.keys(currentSeats).forEach(seatId => {
+                        const seatKey = `${tableId}-S${seatId}`;
+                        updatedCarts[seatKey] = [];
+                      });
+                    }
+                    return updatedCarts;
+                  });
+                  setRows(prev => prev.map(row => 
+                    row.id === tableId 
+                      ? { 
+                          ...row, 
+                          selectedSeats: [],
+                          currentTaskIndex: 0,
+                          currentTask: { ...taskFlow[0] },
+                          minutes: 0,
+                          status: "Available",
+                          serveHistory: []
+                        }
+                      : row
+                  ));
+                  setQuantities({});
+                  setCartNote('');
+                  setShowMenu(false);
+                  setShowCart(false);
+                  setShowComments(false);
+                  setActiveOrderTab("1");
+                  setSelectedSeatsForTable([]);
+                  setExpandedCard(null);
+                  
+                  // Close seat page view and return to main table view
+                  setShowSeatPageView(false);
+                  setSelectedTableForSeats(null);
+                  
+                  console.log('[Clear Table] Table cleared successfully from UI');
+                } catch (error) {
+                  console.error('[Clear Table] Error clearing table:', error);
+                  alert('Failed to clear table. Please try again.');
+                }
               }}
               currentTaskName={rows.find(row => row.id === selectedTableForSeats.id)?.currentTask?.name || "Assign Table"}
             />

@@ -2815,18 +2815,19 @@ export default function AllTables() {
       const tableId = expandedCard.tableId;
       const seatNumber = expandedCard.seatNumber;
       const seatKey = `${tableId}-${seatNumber}`;
-      const seatTaskUuid = seatTaskMapping[seatKey];
-      
-      if (!seatTaskUuid) {
-        console.error('Seat task UUID not found for', seatKey);
-        return;
-      }
       
       try {
         // Check what task we're currently on
         const currentTaskType = expandedCard.currentTask.type || expandedCard.currentTask.id;
         
         if (currentTaskType === 'ORDER' || currentTaskType === 'order') {
+          // For ORDER tasks, we need seatTaskUuid to create SERVE tasks
+          const seatTaskUuid = seatTaskMapping[seatKey];
+          
+          if (!seatTaskUuid) {
+            console.error('Seat task UUID not found for', seatKey);
+            return;
+          }
           // We're on Order task, create Serve task
           console.log('Creating Serve task after Order');
           

@@ -349,13 +349,26 @@ export default function AllTables() {
       if (!seatData) return false;
       
       // Check if this is a PREPARATION task
-      const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || currentTaskId === 'preparation';
+      const isPreparationTask = expandedCard.currentTask?.type === 'PREPARATION' || 
+                                currentTaskId === 'preparation' ||
+                                expandedCard.workflowState === 'order_preparation';
       
       if (isPreparationTask) {
         // For preparation tasks, check if all items are prepared (served)
         const orderItems = expandedCard.extensionsData?.orderItems || [];
-        if (orderItems.length === 0) return false;
-        return orderItems.every(item => item.served === true);
+        console.log('[canProceedToNextTask] Preparation task - orderItems:', orderItems);
+        console.log('[canProceedToNextTask] orderItems length:', orderItems.length);
+        if (orderItems.length === 0) {
+          console.log('[canProceedToNextTask] No order items, returning false');
+          return false;
+        }
+        const allServed = orderItems.every(item => {
+          const isServed = item.served === true || item.served === 'true' || item.orderStatus === 'PREPARED';
+          console.log('[canProceedToNextTask] Item:', item.name, 'served:', item.served, 'orderStatus:', item.orderStatus, 'isServed:', isServed);
+          return isServed;
+        });
+        console.log('[canProceedToNextTask] All items served?', allServed);
+        return allServed;
       }
       
       // Check if this is a SERVE/order_serving task (workflow-based)
@@ -2677,7 +2690,16 @@ export default function AllTables() {
           }
         });
 
-        // Refresh tasks and update expandedCard
+        // Update expandedCard immediately with new items (optimistic update)
+        setExpandedCard(prev => ({
+          ...prev,
+          extensionsData: {
+            ...(prev.extensionsData || {}),
+            orderItems: updatedItems
+          }
+        }));
+
+        // Refresh tasks and update expandedCard with backend data
         await refreshTasksForTable(tableId);
         const updatedTasks = await fetchActiveTasks(tableId);
         const updatedPrepTask = updatedTasks.find(t => t.taskUuid === expandedCard.currentTaskUuid);

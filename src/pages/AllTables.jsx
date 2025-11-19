@@ -1088,8 +1088,8 @@ export default function AllTables() {
           dueAt: '2025-12-31T15:00:00',
           extensionsData: { 
             ...extensionsWithoutWorkflow, 
-            task_status: 'COMPLETED'
-            // workflow is removed so task won't be considered active
+            task_status: 'COMPLETED',
+            workflow: null // Explicitly set to null to ensure backend removes it
           }
         };
         try {
@@ -2304,13 +2304,16 @@ export default function AllTables() {
 
       // Switch UI to the new Order task and open menu
       if (orderResp?.taskUuid) {
+        await ensureMenuLoaded();
         setExpandedCard(prev => ({
           ...prev,
           currentTask: { id: 'order', name: 'Order', type: 'ORDER' },
-          currentTaskUuid: orderResp.taskUuid
+          currentTaskUuid: orderResp.taskUuid,
+          workflowState: 'order_placement'
         }));
-        await ensureMenuLoaded();
         setShowMenu(true);
+        setShowCart(false);
+        console.log('[Order More] ✅ Switched to Order task and opened menu:', orderResp.taskUuid);
       }
     } catch (e) {
       console.error('Error in Order More flow:', e);
@@ -3032,6 +3035,14 @@ export default function AllTables() {
                 workflowState: nextTask.extensionsData?.workflow?.current_state,
                 extensionsData: nextTask.extensionsData
               }));
+              
+              // Hide menu for bill_issuance, show for order_serving
+              if (nextTask.extensionsData?.workflow?.current_state === 'bill_issuance') {
+                setShowMenu(false);
+              }
+              
+              console.log(`[Workflow] ✅ Switched to ${taskName} task:`, nextTask.taskUuid);
+              return; // Exit early - we've found and switched to the next task
             } else if (nextState) {
               // Backend didn't create the task - create it manually as fallback
               console.log(`[Workflow] ⚠️ FRONTEND FALLBACK: Backend didn't create ${nextState} task. Creating manually...`);
@@ -3073,9 +3084,9 @@ export default function AllTables() {
                     const taskType = nextState === 'bill_issuance' ? 'BILL' : 'SERVE';
                     const taskName = nextState === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
                     
-          setExpandedCard(prev => ({
-            ...prev,
-            currentTask: {
+                    setExpandedCard(prev => ({
+                      ...prev,
+                      currentTask: {
                         id: nextState === 'bill_issuance' ? 'bill' : 'serve',
                         name: taskName,
                         type: taskType
@@ -3084,6 +3095,14 @@ export default function AllTables() {
                       workflowState: newNextTask.extensionsData?.workflow?.current_state,
                       extensionsData: newNextTask.extensionsData
                     }));
+                    
+                    // Hide menu for bill_issuance
+                    if (nextState === 'bill_issuance') {
+                      setShowMenu(false);
+                    }
+                    
+                    console.log(`[Workflow] ⚠️ FRONTEND FALLBACK: Switched to ${taskName} task:`, newNextTask.taskUuid);
+                    return; // Exit early - we've created and switched to the next task
                   }
                 }
               } catch (createError) {

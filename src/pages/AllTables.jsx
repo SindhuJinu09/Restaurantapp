@@ -2261,37 +2261,45 @@ export default function AllTables() {
       // Identify table and seat
       const tableId = expandedCard.tableId || expandedCard.seat?.tableId || expandedCard.id;
       const seatId = (expandedCard.seat?.id ?? expandedCard.seatNumber)?.toString();
-      const parentServeUuid = expandedCard.currentTaskUuid; // current Serve task
-      if (!tableId || !seatId || !parentServeUuid) return;
+      if (!tableId || !seatId) return;
 
-      // Find the current serve task from backend cache to copy items
-      const tasks = activeTasksForTable[tableId] || [];
-      const serveTask = tasks.find(t => t.taskUuid === parentServeUuid)
-        || tasks.find(t => t.title === 'serve' && t.extensionsData?.seat_id === seatId);
-      const previousItems = serveTask?.extensionsData?.orderItems || [];
-
-      // Mark current Serve task as COMPLETED before moving to new Order
-      try {
-        await updateFullTask(parentServeUuid, {
-          title: serveTask?.title || 'serve',
-          description: serveTask?.description || 'Serve task',
-          status: 'IN_PROGRESS',
-          dueAt: '2025-12-31T15:00:00',
-          extensionsData: {
-            ...(serveTask?.extensionsData || {}),
-            task_status: 'COMPLETED'
-          }
-        });
-      } catch (e) {
-        console.error('Failed to mark Serve as COMPLETED:', e);
+      // Get the table task UUID (parent for all seat tasks)
+      const tableTaskUuid = tableTaskMapping[tableId];
+      if (!tableTaskUuid) {
+        console.error('[Order More] Table task UUID not found for table:', tableId);
+        return;
       }
+
+      // Aggregate orderItems from ALL previous order tasks for this seat
+      const tasks = activeTasksForTable[tableId] || [];
+      const allOrderItems = [];
+      
+      // Find all order tasks for this seat (including previous "Order More" tasks)
+      const orderTasks = tasks.filter(t => 
+        t.extensionsData?.seat_id === seatId &&
+        (t.extensionsData?.workflow?.current_state === 'order_placement' ||
+         t.title === 'order' ||
+         (t.extensionsData?.workflow?.current_state === 'order_preparation' && t.extensionsData?.orderItems?.length > 0) ||
+         (t.extensionsData?.workflow?.current_state === 'order_serving' && t.extensionsData?.orderItems?.length > 0) ||
+         (t.extensionsData?.workflow?.current_state === 'payment_collection' && t.extensionsData?.orderItems?.length > 0))
+      );
+      
+      // Collect all orderItems from previous orders
+      orderTasks.forEach(task => {
+        const taskOrderItems = task.extensionsData?.orderItems || [];
+        taskOrderItems.forEach(item => {
+          allOrderItems.push(item);
+        });
+      });
+      
+      console.log(`[Order More] Found ${orderTasks.length} previous order tasks for seat ${seatId}, aggregating ${allOrderItems.length} items`);
 
       // Build workflow metadata with current_state = "order_placement" for new order
       const workflowMetadata = buildWorkflowMetadata("order_placement");
 
-      // Create a new Order task as child of Serve
+      // Create a new Order task as child of table task (not serve task)
       const orderTaskData = {
-        requestContext: { parentTaskUuid: parentServeUuid },
+        requestContext: { parentTaskUuid: tableTaskUuid },
         title: 'order',
         description: 'Order More',
         assigneeInfo: ASSIGNEE_INFO,
@@ -2304,8 +2312,8 @@ export default function AllTables() {
           priority: 'HIGH',
           project: 'Nucleus',
           phase: 'planning',
-          subtask_of: parentServeUuid,
-          orderItems: previousItems,
+          subtask_of: tableTaskUuid, // Use table task as parent
+          orderItems: allOrderItems, // Include all previous items for aggregation
           ...workflowMetadata  // Include workflow metadata
         }
       };
@@ -2320,11 +2328,16 @@ export default function AllTables() {
           ...prev,
           currentTask: { id: 'order', name: 'Order', type: 'ORDER' },
           currentTaskUuid: orderResp.taskUuid,
-          workflowState: 'order_placement'
+          workflowState: 'order_placement',
+          extensionsData: {
+            ...(prev.extensionsData || {}),
+            orderItems: allOrderItems // Preserve aggregated items in expandedCard
+          }
         }));
         setShowMenu(true);
         setShowCart(false);
         console.log('[Order More] ✅ Switched to Order task and opened menu:', orderResp.taskUuid);
+        console.log('[Order More] Aggregated orderItems count:', allOrderItems.length);
       }
     } catch (e) {
       console.error('Error in Order More flow:', e);
@@ -4331,13 +4344,39 @@ export default function AllTables() {
 
                           {/* Split Payment - Seat Tabs for Table Seat */}
                               {(() => {
-                                // For workflow-based payment_collection tasks, use orderItems from task extensionsData
-                                const orderItems = expandedCard.extensionsData?.orderItems || [];
+                                // For workflow-based payment_collection tasks, aggregate orderItems from ALL order tasks for this seat
+                                const tableId = expandedCard.tableId;
+                                const seatId = expandedCard.seatNumber?.toString() || expandedCard.extensionsData?.seat_id?.toString();
+                                
+                                // Get all tasks for this table to aggregate orderItems from all order tasks
+                                const allTableTasks = activeTasksForTable[tableId] || [];
+                                
+                                // Find all order tasks for this seat (including "Order More" tasks)
+                                const orderTasks = allTableTasks.filter(t => 
+                                  t.extensionsData?.seat_id === seatId &&
+                                  (t.extensionsData?.workflow?.current_state === 'order_placement' ||
+                                   t.title === 'order' ||
+                                   (t.extensionsData?.workflow?.current_state === 'order_preparation' && t.extensionsData?.orderItems?.length > 0) ||
+                                   (t.extensionsData?.workflow?.current_state === 'order_serving' && t.extensionsData?.orderItems?.length > 0) ||
+                                   (t.extensionsData?.workflow?.current_state === 'payment_collection' && t.extensionsData?.orderItems?.length > 0))
+                                );
+                                
+                                // Aggregate orderItems from all order tasks for this seat
+                                const aggregatedOrderItems = [];
+                                orderTasks.forEach(task => {
+                                  const taskOrderItems = task.extensionsData?.orderItems || [];
+                                  taskOrderItems.forEach(item => {
+                                    aggregatedOrderItems.push(item);
+                                  });
+                                });
+                                
+                                // If no aggregated items, use current task's orderItems
+                                const orderItems = aggregatedOrderItems.length > 0 ? aggregatedOrderItems : (expandedCard.extensionsData?.orderItems || []);
                                 
                                 // Get individual seat orders
                                 const allItems = [];
                                 
-                                // If we have orderItems from workflow task, use those
+                                // Use aggregated orderItems from all order tasks
                                 if (orderItems.length > 0) {
                                   orderItems.forEach((item, index) => {
                                     const price = typeof item.price === 'number' ? item.price : parseFloat(String(item.price || item.basePrice || 0));
@@ -4347,7 +4386,7 @@ export default function AllTables() {
                                       quantity: item.quantity || 1,
                                       orderNumber: index + 1,
                                       timestamp: item.orderTimestamp || new Date().toLocaleString(),
-                                      seatId: item.seat_id || expandedCard.seatNumber?.toString() || expandedCard.extensionsData?.seat_id?.toString()
+                                      seatId: item.seat_id || seatId || expandedCard.seatNumber?.toString()
                                     });
                                   });
                                 } else {
@@ -4364,11 +4403,11 @@ export default function AllTables() {
                                   });
                                 }
                                 
-                                // Calculate total bill
+                                // Calculate total bill from aggregated orderItems
                                 let allSeatsBill = 0;
                                 const tableData = rows.find(row => row.id === expandedCard.tableId);
                                 
-                                // For workflow-based tasks, calculate from orderItems
+                                // Calculate from aggregated orderItems (includes all orders from "Order More")
                                 if (orderItems.length > 0) {
                                   orderItems.forEach(item => {
                                     const price = typeof item.price === 'number' ? item.price : parseFloat(String(item.price || item.basePrice || 0));

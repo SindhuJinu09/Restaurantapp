@@ -377,11 +377,9 @@ export default function AllTables() {
                          expandedCard.workflowState === 'order_serving';
       
       if (isServeTask) {
-        // For serve tasks, check if all items are served
-        const orderItems = expandedCard.extensionsData?.orderItems || [];
-        if (orderItems.length === 0) return false;
-        // Check if all items have served: true
-        return orderItems.every(item => item.served === true);
+        // For serve tasks, always allow proceeding to next task (bill_issuance)
+        // The serving is already done, so we can proceed to billing
+        return true;
       }
       
       // Check if this is a BILL/bill_issuance task (workflow-based)
@@ -3024,11 +3022,35 @@ export default function AllTables() {
             const nextState = currentState === 'order_preparation' ? 'order_serving' : 
                             currentState === 'order_serving' ? 'bill_issuance' : null;
             
-            const nextTask = activeTasks.find(t => 
-              t.extensionsData?.seat_id === seatId &&
-              (t.extensionsData?.workflow?.current_state === 'order_serving' ||
-               t.extensionsData?.workflow?.current_state === 'bill_issuance')
-            );
+            // Find the next task - prioritize the exact next state
+            // IMPORTANT: Don't select the current task - exclude it by UUID
+            const currentTaskUuid = expandedCard.currentTaskUuid;
+            let nextTask = null;
+            
+            if (nextState) {
+              // First, try to find the exact next state task (excluding current task)
+              nextTask = activeTasks.find(t => 
+                t.taskUuid !== currentTaskUuid && // Don't select the current task
+                t.extensionsData?.seat_id === seatId &&
+                t.extensionsData?.workflow?.current_state === nextState
+              );
+              
+              console.log(`[Workflow] Looking for ${nextState} task (excluding current: ${currentTaskUuid})`);
+              console.log(`[Workflow] Found ${nextState} task:`, nextTask ? nextTask.taskUuid : 'none');
+            }
+            
+            // If still not found, log available tasks for debugging
+            if (!nextTask && nextState) {
+              const availableTasks = activeTasks.filter(t => 
+                t.extensionsData?.seat_id === seatId &&
+                t.extensionsData?.workflow?.current_state
+              );
+              console.log(`[Workflow] Available tasks for seat ${seatId}:`, availableTasks.map(t => ({
+                uuid: t.taskUuid,
+                state: t.extensionsData?.workflow?.current_state,
+                title: t.title
+              })));
+            }
             
             if (nextTask) {
               // Check if this task was created by backend
@@ -3063,7 +3085,9 @@ export default function AllTables() {
                 setShowMenu(false);
               }
               
-              console.log(`[Workflow] ✅ Switched to ${taskName} task:`, nextTask.taskUuid);
+              console.log(`[Workflow] ✅ Switched to ${taskName} task (${nextTask.extensionsData?.workflow?.current_state}):`, nextTask.taskUuid);
+              console.log(`[Workflow] Next task state:`, nextTask.extensionsData?.workflow?.current_state);
+              console.log(`[Workflow] Next task title:`, nextTask.title);
               return; // Exit early - we've found and switched to the next task
             } else if (nextState) {
               // Backend didn't create the task - create it manually as fallback

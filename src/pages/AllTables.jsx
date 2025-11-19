@@ -1370,8 +1370,12 @@ export default function AllTables() {
       const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_serving").workflow;
       
       // Update task to COMPLETED to trigger workflow advancement to bill_issuance
+      // Backend requires title and dueAt to be present (not null)
       const updateData = {
+        title: currentTask?.title || expandedCard.currentTask?.name || 'Order Serving',
+        description: currentTask?.description || expandedCard.currentTask?.name || 'Order Serving',
         status: "COMPLETED",
+        dueAt: currentTask?.dueAt || '2025-12-31T15:00:00',
         extensionsData: {
           ...(currentTask?.extensionsData || {}),
           task_status: "COMPLETED",
@@ -2906,8 +2910,12 @@ export default function AllTables() {
             const workflowData = currentTask?.extensionsData?.workflow || buildWorkflowMetadata("order_preparation").workflow;
             
             // Update task to COMPLETED
+            // Backend requires title and dueAt to be present (not null)
             const updateData = {
+              title: currentTask?.title || expandedCard.currentTask?.name || 'Order Preparation',
+              description: currentTask?.description || expandedCard.currentTask?.name || 'Order Preparation',
               status: "COMPLETED",
+              dueAt: currentTask?.dueAt || '2025-12-31T15:00:00',
               extensionsData: {
                 ...(currentTask?.extensionsData || {}),
                 task_status: "COMPLETED",

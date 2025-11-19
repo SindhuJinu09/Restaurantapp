@@ -377,15 +377,15 @@ export default function AllTables() {
                          expandedCard.workflowState === 'order_serving';
       
       if (isServeTask) {
-        // For serve tasks, always allow proceeding to next task (bill_issuance)
+        // For serve tasks, always allow proceeding to next task (payment_collection)
         // The serving is already done, so we can proceed to billing
         return true;
       }
       
-      // Check if this is a BILL/bill_issuance task (workflow-based)
+      // Check if this is a BILL/payment_collection task (workflow-based)
       const isBillTask = expandedCard.currentTask?.type === 'BILL' || 
                         currentTaskId === 'bill' || 
-                        expandedCard.workflowState === 'bill_issuance';
+                        expandedCard.workflowState === 'payment_collection';
       
       if (isBillTask) {
         // For bill tasks, always allow proceeding (payment is handled separately)
@@ -1395,7 +1395,7 @@ export default function AllTables() {
     );
   };
   
-  // Function to handle bill issuance - update current task to COMPLETED to advance to bill_issuance
+  // Function to handle payment collection - update current task to COMPLETED to advance to payment_collection
   const handleBillIssuance = async () => {
     if (!expandedCard || !expandedCard.currentTaskUuid) return;
     
@@ -1428,7 +1428,7 @@ export default function AllTables() {
         return '2025-12-31T15:00:00';
       };
       
-      // Update task to COMPLETED to trigger workflow advancement to bill_issuance
+      // Update task to COMPLETED to trigger workflow advancement to payment_collection
       // Backend requires title and dueAt to be present (not null)
       const updateData = {
         title: currentTask?.title || expandedCard.currentTask?.name || 'Order Serving',
@@ -1442,18 +1442,18 @@ export default function AllTables() {
         }
       };
       
-      console.log('Updating task to COMPLETED for bill issuance:', JSON.stringify(updateData, null, 2));
+      console.log('Updating task to COMPLETED for payment collection:', JSON.stringify(updateData, null, 2));
       await updateFullTask(expandedCard.currentTaskUuid, updateData);
-      console.log('Task updated. Backend should advance workflow to bill_issuance.');
+      console.log('Task updated. Backend should advance workflow to payment_collection.');
       
-      // Refresh tasks to get the new bill_issuance task
+      // Refresh tasks to get the new payment_collection task
       if (tableId && seatId) {
         setTimeout(async () => {
           await refreshTasksForTable(tableId);
           const activeTasks = await fetchActiveTasks(tableId);
           const billTask = activeTasks.find(t => 
             t.extensionsData?.seat_id === seatId &&
-            t.extensionsData?.workflow?.current_state === 'bill_issuance'
+            t.extensionsData?.workflow?.current_state === 'payment_collection'
           );
           
           if (billTask) {
@@ -1462,32 +1462,32 @@ export default function AllTables() {
             const isBackendCreated = taskCreatedAt && new Date(taskCreatedAt) > new Date(Date.now() - 10000); // Within 10 seconds
             
             if (isBackendCreated) {
-              console.log('[Bill Issuance] ✅✅✅ BACKEND WORKFLOW AUTOMATION WORKING! ✅✅✅');
-              console.log('[Bill Issuance] Backend automatically created bill_issuance task:', billTask.taskUuid);
-              console.log('[Bill Issuance] Task created at:', taskCreatedAt);
+              console.log('[Payment Collection] ✅✅✅ BACKEND WORKFLOW AUTOMATION WORKING! ✅✅✅');
+              console.log('[Payment Collection] Backend automatically created payment_collection task:', billTask.taskUuid);
+              console.log('[Payment Collection] Task created at:', taskCreatedAt);
             } else {
-              console.log('[Bill Issuance] ✅ Found bill_issuance task (may be from previous session)');
+              console.log('[Payment Collection] ✅ Found payment_collection task (may be from previous session)');
             }
             
             setExpandedCard(prev => ({
               ...prev,
-              currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
+              currentTask: { id: 'bill', name: 'Payment Collection', type: 'BILL' },
               currentTaskUuid: billTask.taskUuid,
               workflowState: billTask.extensionsData?.workflow?.current_state,
               extensionsData: billTask.extensionsData
             }));
           } else {
-            // Backend didn't create bill_issuance task - create it manually as fallback
-            console.log('[Bill Issuance] ⚠️ FRONTEND FALLBACK: Backend didn\'t create bill_issuance task. Creating manually...');
-            console.log('[Bill Issuance] ⚠️ Backend workflow automation is NOT working - using frontend fallback');
+            // Backend didn't create payment_collection task - create it manually as fallback
+            console.log('[Payment Collection] ⚠️ FRONTEND FALLBACK: Backend didn\'t create payment_collection task. Creating manually...');
+            console.log('[Payment Collection] ⚠️ Backend workflow automation is NOT working - using frontend fallback');
             try {
               const parentTaskUuid = currentTask?.extensionsData?.subtask_of || tableTaskMapping[tableId];
-              const workflowMetadata = buildWorkflowMetadata("bill_issuance");
+              const workflowMetadata = buildWorkflowMetadata("payment_collection");
               
               const billTaskData = {
                 requestContext: parentTaskUuid ? { parentTaskUuid } : {},
                 title: 'bill',
-                description: `Bill Issuance - Seat ${seatId}`,
+                description: `Payment Collection - Seat ${seatId}`,
                 assigneeInfo: ASSIGNEE_INFO,
                 dueAt: '2024-12-31T15:00:00',
                 extensionsData: {
@@ -1506,8 +1506,8 @@ export default function AllTables() {
               
               const billResponse = await taskService.createTask(billTaskData);
               if (billResponse?.taskUuid) {
-                console.log('[Bill Issuance] ⚠️ FRONTEND FALLBACK: Successfully created bill_issuance task manually:', billResponse.taskUuid);
-                console.log('[Bill Issuance] This means backend workflow system did NOT create the task automatically');
+                console.log('[Payment Collection] ⚠️ FRONTEND FALLBACK: Successfully created payment_collection task manually:', billResponse.taskUuid);
+                console.log('[Payment Collection] This means backend workflow system did NOT create the task automatically');
                 
                 await refreshTasksForTable(tableId);
                 const newTasks = await fetchActiveTasks(tableId);
@@ -1516,7 +1516,7 @@ export default function AllTables() {
                 if (newBillTask) {
                   setExpandedCard(prev => ({
                     ...prev,
-                    currentTask: { id: 'bill', name: 'Bill Issuance', type: 'BILL' },
+                    currentTask: { id: 'bill', name: 'Payment Collection', type: 'BILL' },
                     currentTaskUuid: newBillTask.taskUuid,
                     workflowState: newBillTask.extensionsData?.workflow?.current_state,
                     extensionsData: newBillTask.extensionsData
@@ -1524,7 +1524,7 @@ export default function AllTables() {
                 }
               }
             } catch (createError) {
-              console.error('[Bill Issuance] Failed to create bill_issuance task manually:', createError);
+              console.error('[Payment Collection] Failed to create payment_collection task manually:', createError);
             }
           }
         }, 1000);
@@ -2964,7 +2964,7 @@ export default function AllTables() {
           
         } else if (currentTaskType === 'SERVE' || currentTaskType === 'serve' || currentTaskType === 'PREPARATION' || currentTaskType === 'preparation') {
           // We're on Serve or Preparation task - mark as COMPLETED to advance workflow
-          // Backend will create the next task (order_serving or bill_issuance) based on workflow config
+          // Backend will create the next task (order_serving or payment_collection) based on workflow config
           console.log('Marking current task as COMPLETED to advance workflow');
           
           try {
@@ -3010,46 +3010,61 @@ export default function AllTables() {
             await updateFullTask(expandedCard.currentTaskUuid, updateData);
             console.log('Task marked as COMPLETED. Backend should advance workflow.');
             
-            // Refresh tasks to get the new task created by backend
-            await refreshTasksForTable(tableId);
-            const activeTasks = await fetchActiveTasks(tableId);
             const seatId = seatNumber.toString();
             
             // Find the next task based on workflow state
             // After order_preparation, should be order_serving
-            // After order_serving, should be bill_issuance
+            // After order_serving, should be payment_collection (per YAML workflow)
             const currentState = currentTask?.extensionsData?.workflow?.current_state;
             const nextState = currentState === 'order_preparation' ? 'order_serving' : 
-                            currentState === 'order_serving' ? 'bill_issuance' : null;
+                            currentState === 'order_serving' ? 'payment_collection' : null;
             
             // Find the next task - prioritize the exact next state
             // IMPORTANT: Don't select the current task - exclude it by UUID
             const currentTaskUuid = expandedCard.currentTaskUuid;
+            
+            // Retry logic to find the next task created by backend (especially for payment_collection)
+            const findNextTaskWithRetry = async (retries = 5, delay = 1500) => {
+              for (let i = 0; i < retries; i++) {
+                console.log(`[Workflow] Attempting to find ${nextState} task (attempt ${i + 1}/${retries})...`);
+                
+                await refreshTasksForTable(tableId);
+                const refreshedTasks = await fetchActiveTasks(tableId);
+                
+                // Find the exact next state task (excluding current task)
+                const foundTask = refreshedTasks.find(t => 
+                  t.taskUuid !== currentTaskUuid && // Don't select the current task
+                  t.extensionsData?.seat_id === seatId &&
+                  t.extensionsData?.workflow?.current_state === nextState
+                );
+                
+                if (foundTask) {
+                  console.log(`[Workflow] ✅ Found ${nextState} task on attempt ${i + 1}:`, foundTask.taskUuid);
+                  return foundTask;
+                }
+                
+                // Log available tasks for debugging
+                const availableTasks = refreshedTasks.filter(t => 
+                  t.extensionsData?.seat_id === seatId &&
+                  t.extensionsData?.workflow?.current_state
+                );
+                console.log(`[Workflow] Available tasks for seat ${seatId} (attempt ${i + 1}):`, availableTasks.map(t => ({
+                  uuid: t.taskUuid,
+                  state: t.extensionsData?.workflow?.current_state,
+                  title: t.title
+                })));
+                
+                if (i < retries - 1) {
+                  await new Promise(resolve => setTimeout(resolve, delay));
+                }
+              }
+              return null;
+            };
+            
+            // Try to find the next task with retry logic
             let nextTask = null;
-            
             if (nextState) {
-              // First, try to find the exact next state task (excluding current task)
-              nextTask = activeTasks.find(t => 
-                t.taskUuid !== currentTaskUuid && // Don't select the current task
-                t.extensionsData?.seat_id === seatId &&
-                t.extensionsData?.workflow?.current_state === nextState
-              );
-              
-              console.log(`[Workflow] Looking for ${nextState} task (excluding current: ${currentTaskUuid})`);
-              console.log(`[Workflow] Found ${nextState} task:`, nextTask ? nextTask.taskUuid : 'none');
-            }
-            
-            // If still not found, log available tasks for debugging
-            if (!nextTask && nextState) {
-              const availableTasks = activeTasks.filter(t => 
-                t.extensionsData?.seat_id === seatId &&
-                t.extensionsData?.workflow?.current_state
-              );
-              console.log(`[Workflow] Available tasks for seat ${seatId}:`, availableTasks.map(t => ({
-                uuid: t.taskUuid,
-                state: t.extensionsData?.workflow?.current_state,
-                title: t.title
-              })));
+              nextTask = await findNextTaskWithRetry();
             }
             
             if (nextTask) {
@@ -3065,13 +3080,13 @@ export default function AllTables() {
                 console.log(`[Workflow] ✅ Found ${nextState} task (may be from previous session)`);
               }
               
-              const taskType = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'BILL' : 'SERVE';
-              const taskName = nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
+              const taskType = nextTask.extensionsData?.workflow?.current_state === 'payment_collection' ? 'BILL' : 'SERVE';
+              const taskName = nextTask.extensionsData?.workflow?.current_state === 'payment_collection' ? 'Payment Collection' : 'Order Serving';
               
               setExpandedCard(prev => ({
               ...prev,
                 currentTask: {
-                  id: nextTask.extensionsData?.workflow?.current_state === 'bill_issuance' ? 'bill' : 'serve',
+                  id: nextTask.extensionsData?.workflow?.current_state === 'payment_collection' ? 'bill' : 'serve',
                   name: taskName,
                   type: taskType
                 },
@@ -3080,8 +3095,8 @@ export default function AllTables() {
                 extensionsData: nextTask.extensionsData
               }));
               
-              // Hide menu for bill_issuance, show for order_serving
-              if (nextTask.extensionsData?.workflow?.current_state === 'bill_issuance') {
+              // Hide menu for payment_collection, show for order_serving
+              if (nextTask.extensionsData?.workflow?.current_state === 'payment_collection') {
                 setShowMenu(false);
               }
               
@@ -3127,13 +3142,13 @@ export default function AllTables() {
                   const newNextTask = newTasks.find(t => t.taskUuid === nextTaskResponse.taskUuid);
                   
                   if (newNextTask) {
-                    const taskType = nextState === 'bill_issuance' ? 'BILL' : 'SERVE';
-                    const taskName = nextState === 'bill_issuance' ? 'Bill Issuance' : 'Order Serving';
+                    const taskType = nextState === 'payment_collection' ? 'BILL' : 'SERVE';
+                    const taskName = nextState === 'payment_collection' ? 'Payment Collection' : 'Order Serving';
                     
                     setExpandedCard(prev => ({
                       ...prev,
                       currentTask: {
-                        id: nextState === 'bill_issuance' ? 'bill' : 'serve',
+                        id: nextState === 'payment_collection' ? 'bill' : 'serve',
                         name: taskName,
                         type: taskType
                       },
@@ -3142,8 +3157,8 @@ export default function AllTables() {
                       extensionsData: newNextTask.extensionsData
                     }));
                     
-                    // Hide menu for bill_issuance
-                    if (nextState === 'bill_issuance') {
+                    // Hide menu for payment_collection
+                    if (nextState === 'payment_collection') {
                       setShowMenu(false);
                     }
                     
@@ -4307,7 +4322,7 @@ export default function AllTables() {
                           </div>
                         )}
                       </div>
-                    ) : expandedCard.currentTask.id === "6" ? (
+                    ) : (expandedCard.currentTask.id === "6" || expandedCard.currentTask.type === "BILL" || expandedCard.workflowState === 'payment_collection') ? (
                       <div className="w-full max-w-lg mx-auto">
                         <div className="rounded-2xl border-2 border-gray-200 bg-gradient-to-br from-white to-gray-50 p-6 space-y-6 shadow-lg">
                           <div className="text-center">
@@ -4316,30 +4331,59 @@ export default function AllTables() {
 
                           {/* Split Payment - Seat Tabs for Table Seat */}
                               {(() => {
+                                // For workflow-based payment_collection tasks, use orderItems from task extensionsData
+                                const orderItems = expandedCard.extensionsData?.orderItems || [];
+                                
                                 // Get individual seat orders
                                 const allItems = [];
-                                newGetServeOrders()?.forEach(serve => {
-                                  serve.items?.forEach(item => {
-                                    allItems.push({
-                                      ...item,
-                                      orderNumber: serve.orderNumber,
-                                      timestamp: serve.timestamp,
-                                      seatId: item.seatId || expandedCard.seatNumber.toString()
-                                    });
-                                  });
-                                });
                                 
-                                // Calculate "All Seats" bill split
-                                let allSeatsBill = 0;
-                                // Get the table's "All Seats" orders from rows state
-                                const tableData = rows.find(row => row.id === expandedCard.tableId);
-                                if (tableData?.serveHistory) {
-                                  tableData.serveHistory.forEach(serve => {
-                                    serve.items?.forEach(item => {
-                                      const price = parseFloat(item.price.replace('$', ''));
-                                      allSeatsBill += price * item.quantity;
+                                // If we have orderItems from workflow task, use those
+                                if (orderItems.length > 0) {
+                                  orderItems.forEach((item, index) => {
+                                    const price = typeof item.price === 'number' ? item.price : parseFloat(String(item.price || item.basePrice || 0));
+                                    allItems.push({
+                                      name: item.name,
+                                      price: `$${price.toFixed(2)}`,
+                                      quantity: item.quantity || 1,
+                                      orderNumber: index + 1,
+                                      timestamp: item.orderTimestamp || new Date().toLocaleString(),
+                                      seatId: item.seat_id || expandedCard.seatNumber?.toString() || expandedCard.extensionsData?.seat_id?.toString()
                                     });
                                   });
+                                } else {
+                                  // Fallback to old serveHistory method
+                                  newGetServeOrders()?.forEach(serve => {
+                                    serve.items?.forEach(item => {
+                                      allItems.push({
+                                        ...item,
+                                        orderNumber: serve.orderNumber,
+                                        timestamp: serve.timestamp,
+                                        seatId: item.seatId || expandedCard.seatNumber.toString()
+                                      });
+                                    });
+                                  });
+                                }
+                                
+                                // Calculate total bill
+                                let allSeatsBill = 0;
+                                const tableData = rows.find(row => row.id === expandedCard.tableId);
+                                
+                                // For workflow-based tasks, calculate from orderItems
+                                if (orderItems.length > 0) {
+                                  orderItems.forEach(item => {
+                                    const price = typeof item.price === 'number' ? item.price : parseFloat(String(item.price || item.basePrice || 0));
+                                    allSeatsBill += price * (item.quantity || 1);
+                                  });
+                                } else {
+                                  // Fallback: Get the table's "All Seats" orders from rows state
+                                  if (tableData?.serveHistory) {
+                                    tableData.serveHistory.forEach(serve => {
+                                      serve.items?.forEach(item => {
+                                        const price = parseFloat(item.price.replace('$', ''));
+                                        allSeatsBill += price * item.quantity;
+                                      });
+                                    });
+                                  }
                                 }
                                 
                                 // Get all occupied seats for this table

@@ -2724,15 +2724,42 @@ export default function AllTables() {
           kitchenStatus: isServed ? 'Ready' : (updatedItems[idx].kitchenStatus || 'Preparing')
         };
 
-        // Update the preparation task
+        // Get current task to preserve status and workflow metadata
+        let currentTask = null;
+        try {
+          const existingTask = await taskService.getTaskById(expandedCard.currentTaskUuid);
+          currentTask = existingTask?.taskDTO;
+        } catch (e) {
+          console.warn('Could not fetch existing task for status preservation');
+        }
+
+        // Preserve current status (don't change to IN_PROGRESS - status should only change to COMPLETED when clicking Next Task)
+        // Preserve workflow metadata
+        const currentStatus = currentTask?.status || expandedCard.extensionsData?.task_status || 'ACTIVE';
+        const workflowData = currentTask?.extensionsData?.workflow || expandedCard.extensionsData?.workflow;
+
+        // Helper to convert dueAt to ISO string
+        const formatDueAt = (dueAt) => {
+          if (!dueAt) return '2025-12-31T15:00:00';
+          if (typeof dueAt === 'string') return dueAt;
+          if (Array.isArray(dueAt)) {
+            const [year, month, day, hour = 15, minute = 0] = dueAt;
+            return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+          }
+          if (dueAt instanceof Date) return dueAt.toISOString();
+          return '2025-12-31T15:00:00';
+        };
+
+        // Update the preparation task - only update orderItems, preserve status and workflow
         await updateFullTask(expandedCard.currentTaskUuid, {
-          title: expandedCard.currentTask?.name || 'preparation',
-          description: expandedCard.currentTask?.name || 'Order Preparation',
-          status: 'IN_PROGRESS',
-          dueAt: '2025-12-31T15:00:00',
+          title: currentTask?.title || expandedCard.currentTask?.name || 'preparation',
+          description: currentTask?.description || expandedCard.currentTask?.name || 'Order Preparation',
+          status: currentStatus, // Preserve current status - don't change it here
+          dueAt: formatDueAt(currentTask?.dueAt),
           extensionsData: {
-            ...(expandedCard.extensionsData || {}),
-            orderItems: updatedItems
+            ...(currentTask?.extensionsData || expandedCard.extensionsData || {}),
+            orderItems: updatedItems,
+            workflow: workflowData // Preserve workflow metadata
           }
         });
 
@@ -2799,14 +2826,31 @@ export default function AllTables() {
         served: !!isServed
       };
 
+      // Preserve current status and workflow metadata - don't change status when updating items
+      const currentStatus = serveTask.status || serveTask.extensionsData?.task_status || 'ACTIVE';
+      const workflowData = serveTask.extensionsData?.workflow;
+
+      // Helper to convert dueAt to ISO string
+      const formatDueAt = (dueAt) => {
+        if (!dueAt) return '2025-12-31T15:00:00';
+        if (typeof dueAt === 'string') return dueAt;
+        if (Array.isArray(dueAt)) {
+          const [year, month, day, hour = 15, minute = 0] = dueAt;
+          return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+        }
+        if (dueAt instanceof Date) return dueAt.toISOString();
+        return '2025-12-31T15:00:00';
+      };
+
       await updateFullTask(serveTask.taskUuid, {
         title: serveTask.title || 'serve',
         description: serveTask.description || 'Serve task',
-        status: 'IN_PROGRESS',
-        dueAt: '2025-12-31T15:00:00',
+        status: currentStatus, // Preserve current status - don't change it here
+        dueAt: formatDueAt(serveTask.dueAt),
         extensionsData: {
           ...(serveTask.extensionsData || {}),
-          orderItems: updatedItems
+          orderItems: updatedItems,
+          workflow: workflowData // Preserve workflow metadata
         }
       });
 

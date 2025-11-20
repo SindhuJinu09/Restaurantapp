@@ -10,7 +10,7 @@ const DEVELOPMENT_MODE = false; // Set to false to see actual API errors
 // Static headers for API authentication
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-API-Key': 'eBUl5a3OFfwlk-feA7WvaXiWBsP6IwTy-p9s3AbBVZA',
+  'X-API-Key': '6ElTZFsJOUkaLX-gFvSF0D2QNa4m7KrBcC2rpDnKydo',
   'X-APP-ORG-UUID': 'a66035aa-8e6e-4c43-a8c6-358d8d4036af',
   'X-APP-USER-UUID': '9e76e39a-aaeb-47a8-8182-db7d0187e64f',
   'X-APP-CLIENT-USER-SESSION-UUID': 'session-unique-id-45678-12345abcd',

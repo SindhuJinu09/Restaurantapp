@@ -3118,8 +3118,21 @@ export default function AllTables() {
               }
             };
             
+            // Check if task is already COMPLETED - backend workflow tasks are created with COMPLETED status
+            const isAlreadyCompleted = currentTask?.status === 'COMPLETED' || 
+                                      currentTask?.extensionsData?.task_status === 'COMPLETED';
+            
+            if (isAlreadyCompleted) {
+              console.log('[Workflow] Task is already COMPLETED. Updating anyway to trigger backend workflow (status may not change but update should trigger workflow).');
+            }
+            
             await updateFullTask(expandedCard.currentTaskUuid, updateData);
             console.log('Task marked as COMPLETED. Backend should advance workflow.');
+            
+            // Give backend time to process the update and create next task
+            // Backend workflow system needs a moment to read YAML, process transition, and create new task
+            console.log('[Workflow] Waiting 2 seconds for backend to process workflow transition...');
+            await new Promise(resolve => setTimeout(resolve, 2000));
             
             const seatId = seatNumber.toString();
             
@@ -3130,12 +3143,15 @@ export default function AllTables() {
             const nextState = currentState === 'order_preparation' ? 'order_serving' : 
                             currentState === 'order_serving' ? 'payment_collection' : null;
             
+            console.log('[Workflow] Current state:', currentState, 'Next state:', nextState);
+            
             // Find the next task - prioritize the exact next state
             // IMPORTANT: Don't select the current task - exclude it by UUID
             const currentTaskUuid = expandedCard.currentTaskUuid;
             
             // Retry logic to find the next task created by backend (especially for payment_collection)
-            const findNextTaskWithRetry = async (retries = 5, delay = 1500) => {
+            // Increased retries and delay to give backend more time to process workflow transition
+            const findNextTaskWithRetry = async (retries = 8, delay = 2000) => {
               for (let i = 0; i < retries; i++) {
                 console.log(`[Workflow] Attempting to find ${nextState} task (attempt ${i + 1}/${retries})...`);
                 
@@ -3162,8 +3178,23 @@ export default function AllTables() {
                 console.log(`[Workflow] Available tasks for seat ${seatId} (attempt ${i + 1}):`, availableTasks.map(t => ({
                   uuid: t.taskUuid,
                   state: t.extensionsData?.workflow?.current_state,
-                  title: t.title
+                  title: t.title,
+                  task_status: t.extensionsData?.task_status,
+                  status: t.status
                 })));
+                
+                // Also log all tasks for this seat to see what we have
+                const allSeatTasks = refreshedTasks.filter(t => t.extensionsData?.seat_id === seatId);
+                console.log(`[Workflow] All tasks for seat ${seatId} (attempt ${i + 1}):`, allSeatTasks.length, 'tasks');
+                allSeatTasks.forEach((t, idx) => {
+                  console.log(`[Workflow]   Task ${idx + 1}:`, {
+                    uuid: t.taskUuid,
+                    title: t.title,
+                    state: t.extensionsData?.workflow?.current_state,
+                    task_status: t.extensionsData?.task_status,
+                    status: t.status
+                  });
+                });
                 
                 if (i < retries - 1) {
                   await new Promise(resolve => setTimeout(resolve, delay));
@@ -3175,7 +3206,18 @@ export default function AllTables() {
             // Try to find the next task with retry logic
             let nextTask = null;
             if (nextState) {
+              console.log(`[Workflow] Looking for next task with state: ${nextState} for seat ${seatId}`);
               nextTask = await findNextTaskWithRetry();
+              
+              if (!nextTask) {
+                console.warn(`[Workflow] ⚠️ Could not find ${nextState} task after all retries. Backend may not have created it.`);
+                console.warn(`[Workflow] This could mean:`);
+                console.warn(`[Workflow] 1. Backend workflow system is not processing the update`);
+                console.warn(`[Workflow] 2. Backend needs more time to process`);
+                console.warn(`[Workflow] 3. Workflow YAML configuration issue`);
+              }
+            } else {
+              console.warn('[Workflow] ⚠️ No next state determined. Current state:', currentState);
             }
             
             if (nextTask) {

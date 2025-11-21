@@ -2734,8 +2734,27 @@ export default function AllTables() {
         }
 
         // Preserve current status (don't change to IN_PROGRESS - status should only change to COMPLETED when clicking Next Task)
-        // Preserve workflow metadata
-        const currentStatus = currentTask?.status || expandedCard.extensionsData?.task_status || 'ACTIVE';
+        // CRITICAL: Backend creates workflow tasks with status: "COMPLETED"
+        // If task has workflow state, it MUST use COMPLETED status (backend requirement)
+        let currentStatus;
+        
+        // Check if this is a workflow task (has workflow.current_state)
+        const hasWorkflowState = currentTask?.extensionsData?.workflow?.current_state || 
+                                expandedCard.extensionsData?.workflow?.current_state;
+        
+        if (hasWorkflowState) {
+          // This is a backend-created workflow task - MUST use COMPLETED status
+          // Backend workflow tasks are always created with COMPLETED status
+          currentStatus = 'COMPLETED';
+          console.log('[Mark Item Prepared] Workflow task detected - using COMPLETED status');
+        } else {
+          // Not a workflow task - preserve existing status
+          currentStatus = currentTask?.status || 
+                         (currentTask?.extensionsData?.task_status === 'COMPLETED' ? 'COMPLETED' : 'ACTIVE') ||
+                         (expandedCard.extensionsData?.task_status === 'COMPLETED' ? 'COMPLETED' : 'ACTIVE');
+        }
+        
+        console.log('[Mark Item Prepared] Final status:', currentStatus, 'Has workflow state:', !!hasWorkflowState);
         const workflowData = currentTask?.extensionsData?.workflow || expandedCard.extensionsData?.workflow;
 
         // Helper to convert dueAt to ISO string
